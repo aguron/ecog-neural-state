@@ -16,6 +16,9 @@ function newFileFlag = modelconverter(oldModel, newModel, varargin)
         sprintf('%s/%s_nMixComp%02d_%s',...
                 oldDir, oldModel.method,...
                 oldModel.nMixComp, oldModel.covType);
+      if oldModel.sharedCov
+        oldfname                   	= sprintf('%s_tied', oldfname);
+      end % if oldModel.sharedCov
     case 'mfa'
       faTypeSpec                    = 'tu'; % t - tied; u - untied
       oldfname                      =...
@@ -36,6 +39,9 @@ function newFileFlag = modelconverter(oldModel, newModel, varargin)
         sprintf('%s/%s_nStates%02d_%s',...
                 newDir, newModel.method,...
                 oldModel.nMixComp, oldModel.covType);
+      if oldModel.sharedCov
+        newfname                   	= sprintf('%s_tied', newfname);
+      end % if oldModel.sharedCov
     case 'hmfa'
       faTypeSpec                    = 'tu'; % t - tied; u - untied
       newfname                      =...
