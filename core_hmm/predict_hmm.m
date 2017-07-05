@@ -51,12 +51,13 @@ function seq = predict_hmm(seq, params, varargin)
       state                         = temp2.state;
       
       % Taking advantage of block diagonal matrix structure
-      invRmimi                    	= nan(yDim-1,yDim-1,nStates);
+      invRmimi                    	=...
+       nan(yDim-1,yDim-1,max(1,nStates*~sharedCov));
       for j=1:max(1,nStates*~sharedCov)
         if strcmp(covType, 'diagonal')
-         invRmimi(:,:,j)          	= diag(diag(1./R(mi,mi,min(j,end))));
+         invRmimi(:,:,j)          	= diag(diag(1./R(mi,mi,j)));
         elseif strcmp(covType, 'full')
-         invRmimi(:,:,j)          	= inv(R(mi,mi,min(j,end)));
+         invRmimi(:,:,j)          	= inv(R(mi,mi,j));
         end
       end % for j=1:max(1,nStates*~sharedCov)
       temp                          = mat2cell(invRmimi(:,:,min(state,end)),...

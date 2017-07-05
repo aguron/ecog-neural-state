@@ -43,7 +43,8 @@ function seq = predict_gmm(seq, obj, varargin)
       mixComp           = cluster(obj2, Yn(mi,:)');
 
       % Taking advantage of block diagonal matrix structure
-      invSigma        	= nan(yDim-1,yDim-1,nMixComp);
+      invSigma        	=...
+       nan(yDim-1,yDim-1,max(1,nMixComp*~obj.SharedCov));
       for j=1:max(1,nMixComp*~obj.SharedCov)
         if strcmp(obj.CovType, 'diagonal')
          invSigma(:,:,j)= diag(1./obj2.Sigma(:,:,j));

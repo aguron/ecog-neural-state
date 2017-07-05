@@ -242,14 +242,14 @@ function result = neuralstate(runIdx, dat, varargin)
     end % if (cvf > 0)
     learning                        = true;
     inference                       = true;
+    if exist('predFlag','var') && (~prediction)
+      prediction                    = true;
+    end % if exist('predFlag','var') && (~prediction)
     if exist([fname '.mat'], 'file')
       if (~inferOverride)
         inference                   = false;
       end % if (~inferOverride)
-     
-      if exist('predFlag','var') && (~prediction)
-       prediction                   = true;
-      end % if exist('predFlag','var') && (~prediction)
+
       if ((inference) || ((prediction) && (cvf > 0))) &&...
          ismember(method, {'chmfa', 'phmfa', 'hmfa', 'mfa', 'hmm', 'gmm'})
         seqTest                     = loadvars(fname, 'seqTest');
