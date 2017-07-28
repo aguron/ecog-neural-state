@@ -73,6 +73,7 @@ function [estParams, seq, LL, iterTime] = em_mhmm(currentParams, seq, varargin)
 
   nStates                           = currentParams(1).nStates;
   covType                          	= currentParams(1).covType;
+  sharedCov                         = currentParams(1).sharedCov;
   nMixComp                          = currentParams(1).nMixComp;
   
   yDim                              = size(currentParams(1).R, 1);
@@ -140,6 +141,12 @@ function [estParams, seq, LL, iterTime] = em_mhmm(currentParams, seq, varargin)
       elseif isequal(covType, 'diagonal')
         currentParams(k).R         	= nddiag(nddiag(YY_dd(:,:,:,k)));
       end
+
+      if (sharedCov)
+       currentParams(k).R          	=...
+        sum(bsxfun(@times,currentParams(k).R,reshape(ess(k).wsum,1,1,[])),3)/...
+        sum(ess(k).wsum);
+      end % if (sharedCov)
     end % for k=1:nMixComp
     
     tEnd                            = toc;

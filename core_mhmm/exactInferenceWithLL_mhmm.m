@@ -89,14 +89,19 @@ function [seq, ess, LL] = exactInferenceWithLL_mhmm(seq, params, varargin)
   for k=1:nMixComp
     emission(k).mu             	= params(k).d;
     emission(k).Sigma         	= nan([yDim yDim nStates]);
-    for j=1:nStates
-      emission(k).Sigma(:,:,j)  = params(k).R(:,:,j);
+    for j=1:nStates*~params(1).sharedCov
+      if (params(1).sharedCov)
+       emission(k).Sigma      	= repmat(params(k).R,[1 1 nStates]);
+      else % if (~params(1).sharedCov)
+       emission(k).Sigma(:,:,j) = params(k).R(:,:,j);
+      end
+      
       condNum                   = cond(emission(k).Sigma(:,:,j));
       if (condNum > condNumLim)
         error(['Covariance matrix of Gaussian distribution (state %d) ',...
                'has a large condition number (%d)'], j, condNum);
       end % if (condNum > condNumLim)
-    end % for j=1:nStates
+    end % for j=1:nStates*~params(1).sharedCov
   end % for k=1:nMixComp
   
   [emission.d]                  = deal(yDim);

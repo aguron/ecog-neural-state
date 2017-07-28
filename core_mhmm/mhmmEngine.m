@@ -164,6 +164,7 @@ function mhmmEngine(seqTrain, seqTest, fname, varargin)
           end
 
           CovType                           = [];
+          SharedCov                         = [];
           assignopts(who, varargin);
           if isequal(CovType, 'full')
             % do nothing
@@ -173,6 +174,7 @@ function mhmmEngine(seqTrain, seqTest, fname, varargin)
           end
         end % for k=1:nMixComp
         startParams(1).covType             	= CovType;
+        startParams(1).sharedCov           	= SharedCov;
         startParams                        	=...
           rmfield(startParams,{'C','faType'});
       end
@@ -191,7 +193,13 @@ function mhmmEngine(seqTrain, seqTest, fname, varargin)
       % Initialize state model parameters
       % ==================================
       startParams(1).nStates               	= nStates;
-      startParams(1).covType               	= covType;
+      
+      CovType                               = [];
+      SharedCov                             = [];
+      assignopts(who, varargin);
+      startParams(1).covType               	= CovType;
+      startParams(1).sharedCov              = SharedCov;
+      
       startParams(1).nMixComp              	= nMixComp;
 
       startParams(nMixComp).Pi              = num2cell(Pi);

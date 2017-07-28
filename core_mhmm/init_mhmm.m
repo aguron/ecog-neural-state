@@ -102,6 +102,7 @@ function [startParams, mixCompGuess, outliers] =...
                    'Pseudotransitions', ones(nStates));
     startParamsHMM.nStates                  = nStates;
     startParamsHMM.covType                 	= CovType;
+    startParamsHMM.sharedCov               	= SharedCov;
     startParamsHMM.pi                       = hmm.ST;
     startParamsHMM.trans                    = hmm.TR;
     startParamsHMM.piPrior                  = ones(1, nStates);
@@ -201,6 +202,7 @@ function [startParams, mixCompGuess, outliers] =...
                    'Pseudotransitions', ones(nStates));
     startParamsHMM.nStates                  = nStates;
     startParamsHMM.covType                 	= CovType;
+    startParamsHMM.sharedCov                = SharedCov;
     startParamsHMM.pi                       = hmm.ST;
     startParamsHMM.trans                    = hmm.TR;
     startParamsHMM.piPrior                  = ones(1, nStates);
@@ -244,6 +246,7 @@ function [startParams, mixCompGuess, outliers] =...
     % Define parameter constraints
     if (k == 1)
       startParams(1).covType               	= CovType;
+      startParams(1).sharedCov             	= SharedCov;
     end % if (k == 1)
   end % for k=1:nMixComp
 end
