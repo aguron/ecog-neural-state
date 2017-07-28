@@ -2,8 +2,8 @@ function seq = predict_hmfa_fast(seq, params, varargin)
 %
 % seq = predict_hmfa_fast(seq, params, ...)
 %
-% Performs leave-electrode-out prediction for HMFA.  This version takes 
-% advantage of R being diagonal for computational savings.
+% Performs leave-electrode-out prediction for HMFA (assumes R is
+% diagonal)
 %
 % INPUTS:
 %
@@ -41,18 +41,18 @@ function seq = predict_hmfa_fast(seq, params, varargin)
   if any(faType(2:3))
     if faType(3)
       Rinv                          = nan([yDim yDim nStates]);
-    else
+    else % if ~faType(3)
       Rinv                          = nan([yDim yDim]);
-    end % if faType(3)
+    end
     CRinv                           = nan([xDim yDim nStates]);
     CRinvC                          = nan([xDim xDim nStates]);
     B                               = nan([xDim xDim nStates]);
-  else
+  else % if ~any(faType(2:3))
     Rinv                            = nan([yDim yDim]);
     CRinv                           = nan([xDim yDim]);
     CRinvC                          = nan([xDim xDim]);
     B                               = nan([xDim xDim]);
-  end % if any(faType(2:3))
+  end
 
   for j=1:nStates
     jC                              = j*faType(2) + (1 - faType(2));
@@ -97,7 +97,7 @@ function seq = predict_hmfa_fast(seq, params, varargin)
       else % if ~any(faType(2:3))
         temp                       	= cell(1,T);
         [temp{:}]                  	= deal(B);
-      end % if any(faType(2:3))
+      end
 
       % Taking advantage of the block diagonal matrix structure
       invM                          = blkdiag(temp{:});
@@ -105,10 +105,10 @@ function seq = predict_hmfa_fast(seq, params, varargin)
       if faType(1)
                                     % yDim x T
         dif                         = Yn - d(:,state);
-      else
+      else % if ~faType(1)
                                     % yDim x T
         dif                         = bsxfun(@minus, Yn, d);
-      end % if faType(1)
+      end
 
       if any(faType(2:3))
         CRinv_dif                   = nan(xDim, T);
@@ -119,7 +119,7 @@ function seq = predict_hmfa_fast(seq, params, varargin)
       else % if ~any(faType(2:3))
                                     % xDim x T
         CRinv_dif                   = CRinv * dif;
-      end % if any(faType(2:3))
+      end
 
       % Downdate invM to remove contribution of electrode i
       ci_invM                       = nan(T, xDim*T);
@@ -133,18 +133,18 @@ function seq = predict_hmfa_fast(seq, params, varargin)
           
           ci(:,j)                   = C(i,:,jC)' / sqrt(R(i,i,jR));
         end % for j=1:nStates
-      else
+      else % if ~any(faType(2:3))
         ci                          = C(i,:)' / sqrt(R(i,i));
-      end % if any(faType(2:3))
+      end
 
       for t=1:T
         bIdx                        = idx(t):idx(t+1)-1;
         if any(faType(2:3))
           s                         = state(t);
           ci_invM(t,:)              = ci(:,s)' * invM(bIdx,:);
-        else
+        else % if ~any(faType(2:3))
           ci_invM(t,:)              = ci' * invM(bIdx,:);
-        end % if any(faType(2:3))
+        end
       end % for t=1:T
 
       for t=1:T
@@ -152,9 +152,9 @@ function seq = predict_hmfa_fast(seq, params, varargin)
         if any(faType(2:3))
           s                         = state(t);
           ci_invM_ci(:,t)           = ci_invM(:,bIdx) * ci(:,s);
-        else
+        else % if ~any(faType(2:3))
           ci_invM_ci(:,t)           = ci_invM(:,bIdx) * ci;
-        end % if any(faType(2:3))
+        end
       end % for t=1:T
                                     % T x (xDim*T) 
       term                          = (ci_invM_ci - eye(T)) \ ci_invM;
@@ -167,9 +167,9 @@ function seq = predict_hmfa_fast(seq, params, varargin)
         for j=1:nStates
           CRinvC_mi(:,:,j)          = CRinvC(:,:,j) - ci(:,j) * ci(:,j)';
         end % for j=1:nStates
-      else
+      else % if ~any(faType(2:3))
         CRinvC_mi                   = CRinvC - ci * ci';
-      end % if any(faType(2:3))
+      end
 
       if any(faType(2:3))
         term1Mat                    = nan([xDim T]);
@@ -183,22 +183,22 @@ function seq = predict_hmfa_fast(seq, params, varargin)
         end % for t=1:T
                                     % (xDim*T) x 1
         term1Mat                    = term1Mat(:);
-      else
-        term1Mat                    =...(xDim*T) x 1
+      else % if ~any(faType(2:3))
+        term1Mat                    =... (xDim*T) x 1
           reshape(CRinv_dif - C(i,:)' / R(i,i) * dif(i,:), xDim*T, []);
-      end % if any(faType(2:3))
+      end
 
       % Compute blkProd = CRinvC_big * invM
-      blkProd                       = zeros(xDim*T, xDim*T);
+      blkProd                       = nan(xDim*T, xDim*T);
       % idx                         = 1:xDim:(xDim*T + 1);
       for t=1:T
         bIdx                        = idx(t):idx(t+1)-1;
         if any(faType(2:3))
           s                         = state(t);
           blkProd(bIdx,:)           = CRinvC_mi(:,:,s) * invM_mi(bIdx,:);
-        else
+        else % if ~any(faType(2:3))
           blkProd(bIdx,:)           = CRinvC_mi * invM_mi(bIdx,:);
-        end % if any(faType(2:3))
+        end
       end % for t=1:T
       blkProd                       = speye(xDim*T) - blkProd;
                                     % (xDim*T) x 1
@@ -216,7 +216,7 @@ function seq = predict_hmfa_fast(seq, params, varargin)
           temp3(t)                  = C(i,:,sC) * xsmMat(:,t) + d(i,sd);
         end % for t=1:T
         ycs(i,:)                    = temp3;
-      else
+      else % if ~any(faType(1:2))
         ycs(i,:)                    = C(i,:) * xsmMat + d(i);
       end
     end % parfor i=1:yDim

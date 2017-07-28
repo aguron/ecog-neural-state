@@ -2,8 +2,8 @@ function seq = predict_mfa_fast(seq, params, varargin)
 %
 % seq = predict_mfa_fast(seq, params, ...)
 %
-% Performs leave-electrode-out prediction for MFA.  This version takes
-% advantage of R being diagonal for computational savings.
+% Performs leave-electrode-out prediction for MFA (assumes R is
+% diagonal)
 %
 % INPUTS:
 %
@@ -40,18 +40,18 @@ function seq = predict_mfa_fast(seq, params, varargin)
   if any(faType(2:3))
     if faType(3)
       Rinv                          = nan([yDim yDim nMixComp]);
-    else
+    else % if ~faType(3)
       Rinv                          = nan([yDim yDim]);
-    end % if faType(3)
+    end
     CRinv                           = nan([xDim yDim nMixComp]);
     CRinvC                          = nan([xDim xDim nMixComp]);
     B                               = nan([xDim xDim nMixComp]);
-  else
+  else % if ~any(faType(2:3))
     Rinv                            = nan([yDim yDim]);
     CRinv                           = nan([xDim yDim]);
     CRinvC                          = nan([xDim xDim]);
     B                               = nan([xDim xDim]);
-  end % if any(faType(2:3))
+  end
 
   for j=1:nMixComp
     jC                              = j*faType(2) + (1 - faType(2));
@@ -80,7 +80,7 @@ function seq = predict_mfa_fast(seq, params, varargin)
       % eliminate the contribution of electrode i
       mi                            = [1:(i-1) (i+1):yDim];
 
-      [~, temp2]                	=...
+      [~, temp2]                    =...
         em_mfa(struct('nMixComp',nMixComp, 'faType',faType,...
                       'Pi',Pi, 'd',d(mi,:),...
                       'C',C(mi,:,:), 'R',R(mi,mi,:)),...
@@ -94,7 +94,7 @@ function seq = predict_mfa_fast(seq, params, varargin)
       else % if ~any(faType(2:3))
         temp                       	= cell(1,T);
         [temp{:}]                  	= deal(B);
-      end % if any(faType(2:3))
+      end
 
       % Taking advantage of the block diagonal matrix structure
       invM                          = blkdiag(temp{:});
@@ -102,11 +102,11 @@ function seq = predict_mfa_fast(seq, params, varargin)
       if faType(1)
                                     % yDim x T
         dif                         = Yn - d(:,mixComp);
-      else
+      else % if faType(1)
                                     % yDim x T
         dif                         = bsxfun(@minus, Yn, d);
-      end % if faType(1)
-      
+      end
+
       if any(faType(2:3))
         CRinv_dif                   = nan(xDim, T);
         for t=1:T
@@ -116,7 +116,7 @@ function seq = predict_mfa_fast(seq, params, varargin)
       else % if ~any(faType(2:3))
                                     % xDim x T
         CRinv_dif                   = CRinv * dif;
-      end % if any(faType(2:3))
+      end
 
       % Downdate invM to remove contribution of electrode i
       ci_invM                       = nan(T, xDim*T);
@@ -130,9 +130,9 @@ function seq = predict_mfa_fast(seq, params, varargin)
           
           ci(:,j)                   = C(i,:,jC)' / sqrt(R(i,i,jR));
         end % for j=1:nMixComp
-      else
+      else % if ~any(faType(2:3))
         ci                          = C(i,:)' / sqrt(R(i,i));
-      end % if any(faType(2:3))
+      end
 
       for t=1:T
         bIdx                        = idx(t):idx(t+1)-1;
@@ -149,9 +149,9 @@ function seq = predict_mfa_fast(seq, params, varargin)
         if any(faType(2:3))
           s                         = mixComp(t);
           ci_invM_ci(:,t)           = ci_invM(:,bIdx) * ci(:,s);
-        else
+        else % if ~any(faType(2:3))
           ci_invM_ci(:,t)           = ci_invM(:,bIdx) * ci;
-        end % if any(faType(2:3))
+        end
       end % for t=1:T
                                     % T x (xDim*T) 
       term                          = (ci_invM_ci - eye(T)) \ ci_invM;
@@ -164,9 +164,9 @@ function seq = predict_mfa_fast(seq, params, varargin)
         for j=1:nMixComp
           CRinvC_mi(:,:,j)          = CRinvC(:,:,j) - ci(:,j) * ci(:,j)';
         end % for j=1:nMixComp
-      else
+      else % if ~any(faType(2:3))
         CRinvC_mi                   = CRinvC - ci * ci';
-      end % if any(faType(2:3))
+      end
 
       if any(faType(2:3))
         term1Mat                    = nan([xDim T]);
@@ -180,10 +180,10 @@ function seq = predict_mfa_fast(seq, params, varargin)
         end % for t=1:T
                                     % (xDim*T) x 1
         term1Mat                    = term1Mat(:);
-      else
+      else % if ~any(faType(2:3))
         term1Mat                    =... (xDim*T) x 1
           reshape(CRinv_dif - C(i,:)' / R(i,i) * dif(i,:), xDim*T, []);
-      end % if any(faType(2:3))
+      end
 
       % Compute blkProd = CRinvC_big * invM
       blkProd                       = nan(xDim*T, xDim*T);
@@ -193,15 +193,16 @@ function seq = predict_mfa_fast(seq, params, varargin)
         if any(faType(2:3))
           s                         = mixComp(t);
           blkProd(bIdx,:)           = CRinvC_mi(:,:,s) * invM_mi(bIdx,:);
-        else
+        else % if ~any(faType(2:3))
           blkProd(bIdx,:)           = CRinvC_mi * invM_mi(bIdx,:);
-        end % if any(faType(2:3))
+        end
       end % for t=1:T
       blkProd                       = speye(xDim*T) - blkProd;
                                     % (xDim*T) x 1
       xsmMat                        = blkProd * term1Mat;
                                     % xDim x T
       xsmMat                        = reshape(xsmMat, xDim, T);
+
       if any(faType(1:2))
         temp3                       = nan(1,T);
         for t=1:T
@@ -212,7 +213,7 @@ function seq = predict_mfa_fast(seq, params, varargin)
           temp3(t)                  = C(i,:,sC) * xsmMat(:,t) + d(i,sd);
         end % for t=1:T
         ycs(i,:)                    = temp3;
-      else
+      else % if ~any(faType(1:2))
         ycs(i,:)                    = C(i,:) * xsmMat + d(i);
       end
     end % parfor i=1:yDim

@@ -51,10 +51,11 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
 %
 % emMaxIters    - number of EM iterations to run (default: 500)
 % tolMFA        - stopping criterion for EM (default: 1e-2)
-% minVarFrac    - fraction of overall data variance for each observed dimension
-%                 to set as the private variance floor.  This is used to combat
-%                 Heywood cases, where ML parameter learning returns one or more
-%                 zero private variances. (default: 0.01)
+% minVarFrac    - fraction of overall data variance for each observed
+%                 dimension to set as the private variance floor.  This 
+%                 is used to combat Heywood cases, where ML parameter 
+%                 learning returns one or more zero private variances.
+%                 (default: 0.01)
 %                 (See Martin & McDonald, Psychometrika, Dec 1975.)
 % verbose       - logical that specifies whether to display status messages
 %                 (default: false)
@@ -76,10 +77,11 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
 
   nMixComp                      = currentParams.nMixComp;
   faType                        = currentParams.faType;
-  
+
   if ~isequal(faType,[1 1 1]) &&...
-     ~isequal(faType,[1 1 0])
-    error('Does not support faType = [%d %d %d]\n', faType);
+     ~isequal(faType,[1 1 0]) &&...
+     ~isequal(faType,[1 0 0])
+   fprintf('Does not support faType = [%d %d %d]\n',faType);
   end
 
   [yDim, xDim, ~]               = size(currentParams.C);
@@ -87,13 +89,13 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
   if any(faType(2:3))
     if faType(3)
       invR                      = nan([yDim yDim nMixComp]);
-    else
+    else % if ~faType(3)
       invR                      = nan([yDim yDim]);
     end
     invRC                       = nan([yDim xDim nMixComp]);
     invM                        = nan([yDim yDim nMixComp]);
     beta                        = nan([xDim yDim nMixComp]);
-  else
+  else % if ~any(faType(2:3))
     invRC                       = nan([yDim xDim]);
     invM                        = nan([yDim yDim]);
     beta                        = nan([xDim yDim]);
@@ -136,7 +138,7 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
 
     if ~isnan(LLi)
       LLold                    	= LLi;
-    end
+    end % if ~isnan(LLi)
 
     % ==== E STEP =====
     d                         	= currentParams.d;
@@ -212,41 +214,50 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
       fprintf('\nWarning: Data likelihood has decreased from %g to %g.\n',...
               LLold, LLi);
       fprintf('To continue EM algorithm, set dbg = true\n');
-      dbg                           = false;
+      dbg                      	= false;
       programcontrol
       if (dbg)
         continue
       else
-        currentParams               = previousParams;
-        flag_converged             	= true;
+        currentParams           = previousParams;
+        flag_converged          = true;
         break
       end % if (dbg)
     elseif exist('LLbase','var') &&...
            ((LLi-LLbase) < (1+tolMFA)*(LLold-LLbase))
       dispLL(false, getLL, LLi);
-      flag_converged                = true;
+      flag_converged            = true;
       break
     else
       if (i<=2)
-        LLbase                     	= LLi;
+        LLbase                  = LLi;
       end % if (i<=2)
-      previousParams               	= currentParams;
+      previousParams            = currentParams;
     end
 
     % ==== M STEP =====
+    if ~faType(2)
+      if faType(1)
+        currentParams.d        	= bsxfun(@rdivide, yAll*H, Hsum);
+      end % if faType(1)
+      currentParams.C         	=...
+       sum(bsxfun(@times,YY_ddBeta,reshape(Hsum,1,1,[])), 3) /...
+       sum(bsxfun(@times,EXX,reshape(Hsum,1,1,[])), 3);
+    end % if ~faType(2)
+
     currentParams.R(:)         	= 0;
     for j=1:nMixComp
-      jC                       	= j*faType(2) + (1 - faType(2));
-      jR                      	= j*faType(3) + (1 - faType(3));
-      jRC                     	= max(jC,jR);
-      
-      T0                      	= bsxfun(@dotprod, yAll, H(:,j)');
-      T1                      	= T0*[EX(:,:,j)' ones(lY, 1)];
-      T2                      	= [Hsum(j)*EXX(:,:,j) EX(:,:,j)*H(:,j);
+      T0                        = bsxfun(@dotprod, yAll, H(:,j)');
+      T1                        = T0*[EX(:,:,j)' ones(lY, 1)];
+      T2                        = [Hsum(j)*EXX(:,:,j) EX(:,:,j)*H(:,j);
                                    H(:,j)'*EX(:,:,j)' Hsum(j)];
-      T3                      	= T1 / T2;
-      currentParams.C(:,:,j)   	= T3(:,1:xDim);
-      currentParams.d(:,j)    	= T3(:,xDim+1);
+      T3                        = T1 / T2;
+      if faType(2)
+        if faType(1)
+          currentParams.d(:,j) 	= T3(:,xDim+1);
+        end % if faType(1)
+        currentParams.C(:,:,j) 	= T3(:,1:xDim);
+      end % if faType(2)
 
       if faType(3)
         if currentParams.notes.RforceDiagonal
@@ -269,7 +280,7 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
           currentParams.R      	= currentParams.R +...
                                   symm((T0*yAll' - T3*T1')/Hsumsum);
         end
-      end % if faType(3)
+      end
     end % for j=1:nMixComp
 
     currentParams.Pi          	= Hsum/Hsumsum;

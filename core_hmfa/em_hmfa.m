@@ -75,10 +75,11 @@ function [estParams, seq, LL, iterTime] = em_hmfa(currentParams, seq, varargin)
 
   nStates                           = currentParams.nStates;
   faType                            = currentParams.faType;
-  
+
   if ~isequal(faType,[1 1 1]) &&...
-     ~isequal(faType,[1 1 0])
-    fprintf('Does not support faType = [%d %d %d]\n',faType);
+     ~isequal(faType,[1 1 0]) &&...
+     ~isequal(faType,[1 0 0])
+   fprintf('Does not support faType = [%d %d %d]\n',faType);
   end
 
   [yDim, xDim, ~]                   = size(currentParams.C);
@@ -92,7 +93,7 @@ function [estParams, seq, LL, iterTime] = em_hmfa(currentParams, seq, varargin)
     invRC                           = nan([yDim xDim nStates]);
     invM                            = nan([yDim yDim nStates]);
     beta                            = nan([xDim yDim nStates]);
-  else
+  else % if ~any(faType(2:3))
     invRC                           = nan([yDim xDim]);
     invM                            = nan([yDim yDim]);
     beta                            = nan([xDim yDim]);
@@ -124,7 +125,7 @@ function [estParams, seq, LL, iterTime] = em_hmfa(currentParams, seq, varargin)
 
     if ~isnan(LLi)
       LLold                         = LLi;
-    end
+    end % if ~isnan(LLi)
 
     % ==== E STEP =====
     [~, ess, ~]                     =...
@@ -176,22 +177,29 @@ function [estParams, seq, LL, iterTime] = em_hmfa(currentParams, seq, varargin)
                                       beta(:,:,jRC) * YY_ddBeta(:,:,j);
     end % for j=1:nStates
 
-    for j=1:nStates
-      currentParams.C(:,:,j)        = YY_ddBeta(:,:,j) / EXX(:,:,j);
-    end % for j=1:nStates
+    if faType(2)
+      for j=1:nStates
+        currentParams.C(:,:,j)    	= YY_ddBeta(:,:,j) / EXX(:,:,j);
+      end % for j=1:nStates
+    else % if ~faType(2)
+      currentParams.C               =...
+       sum(bsxfun(@times,YY_ddBeta,reshape(ess.wsum,1,1,[])), 3) /...
+       sum(bsxfun(@times,EXX,reshape(ess.wsum,1,1,[])), 3);
+    end
 
     C                               = currentParams.C; % temporary
     if faType(3)
       for j=1:nStates
+        jC                         	= j*faType(2) + (1 - faType(2));
         if currentParams.notes.RforceDiagonal
           diagR                     =...
-            diag(YY_dd(:,:,j)) - sum(YY_ddBeta(:,:,j) .* C(:,:,j), 2);
+            diag(YY_dd(:,:,j)) - sum(YY_ddBeta(:,:,j) .* C(:,:,jC), 2);
           % Set minimum private variance
           diagR                     = max(varFloor, diagR);
           currentParams.R(:,:,j)    = diag(diagR);
         else
           currentParams.R(:,:,j)    =...
-            YY_dd(:,:,j) - C(:,:,j) * YY_ddBeta(:,:,j)';
+            YY_dd(:,:,j) - C(:,:,jC) * YY_ddBeta(:,:,j)';
           % ensure symmetry
           currentParams.R(:,:,j)    = symm(currentParams.R(:,:,j));
         end
@@ -202,14 +210,14 @@ function [estParams, seq, LL, iterTime] = em_hmfa(currentParams, seq, varargin)
         if currentParams.notes.RforceDiagonal
           diagR                     =...
             ess.wsum(j)*(diag(YY_dd(:,:,j)) -...
-                         sum(YY_ddBeta(:,:,j) .* C(:,:,j), 2));
+                         sum(YY_ddBeta(:,:,j) .* C(:,:,jC), 2));
           % Set minimum private variance
           diagR                     = max(varFloor, diagR);
           currentParams.R           = currentParams.R + diag(diagR);
         else
           % ensure symmetry
           currentParams.R           = currentParams.R +...
-            ess.wsum(j)*symm(YY_dd(:,:,j) - C(:,:,j) * YY_ddBeta(:,:,j)');
+            ess.wsum(j)*symm(YY_dd(:,:,j) - C(:,:,jC) * YY_ddBeta(:,:,j)');
         end
       end % for j=1:nStates
       currentParams.R               = currentParams.R/sum(ess.wsum);

@@ -63,13 +63,14 @@ function mfaEngine(seqTrain, seqTest, fname, varargin)
 
   if (learning)
     if ~any(faType) && (nMixComp > 1)
-      error(['At least one of the factor analyzer parameters',...
-             'must be untied if nMixComp > 1']);
+      error(['At least one of the factor analyzer parameters must ',...
+             'be untied if nMixComp > 1']);
     end % if ~any(faType) && (nMixComp > 1)
 
     if ~isequal(faType,[1 1 1]) &&...
-       ~isequal(faType,[1 1 0])
-      error('Does not support faType = [%d %d %d]\n', faType);
+       ~isequal(faType,[1 1 0]) &&...
+       ~isequal(faType,[1 0 0])
+     fprintf('Does not support faType = [%d %d %d]\n',faType);
     end
 
     if (kernSD)
@@ -175,9 +176,9 @@ function mfaEngine(seqTrain, seqTest, fname, varargin)
       % using learned parameters
       [~, seqTrain, LLorig] 	=...
         em_mfa(estParams, seqTrain, 'emMaxIters', 0);
-    else
+    else % if isempty(seqTrainCut)
       estParams             	= startParams;
-    end % if ~isempty(seqTrainCut)
+    end
   else % if (~learning)
     estParams                	= loadvars(fname, 'estParams');
     if (inference)

@@ -76,8 +76,9 @@ function hmfaEngine(seqTrain, seqTest, fname, varargin)
     end
 
     if ~isequal(faType,[1 1 1]) &&...
-       ~isequal(faType,[1 1 0])
-      fprintf('Does not support faType = [%d %d %d]\n', faType);
+       ~isequal(faType,[1 1 0]) &&...
+       ~isequal(faType,[1 0 0])
+     fprintf('Does not support faType = [%d %d %d]\n',faType);
     end
 
     if (kernSD)

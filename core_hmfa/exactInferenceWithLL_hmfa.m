@@ -132,7 +132,7 @@ function [seq, ess, LL] = exactInferenceWithLL_hmfa(seq, params, varargin)
       invRC                     = nan([yDim xDim nStates]);
       invM                      = nan([yDim yDim nStates]);
       betaFA                    = nan([xDim yDim nStates]);
-    else
+    else % if ~any(faType(2:3))
       invRC                     = nan([yDim xDim]);
       invM                      = nan([yDim yDim]);
       betaFA                    = nan([xDim yDim]);

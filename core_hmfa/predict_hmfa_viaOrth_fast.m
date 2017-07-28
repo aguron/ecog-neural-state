@@ -2,8 +2,8 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
 %
 % seq = predict_hmfa_viaOrth_fast(seq, params, mList, ...)
 %
-% Performs leave-electrode-out prediction for HMFA.  This version takes 
-% advantage of R being diagonal for computational savings.
+% Performs leave-electrode-out prediction for HMFA (assumes R is
+% diagonal)
 %
 % INPUTS:
 %
@@ -14,9 +14,9 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
 %
 % OUTPUTS:
 %
-% seq         - test data structure with new fields ycsOrthXX, where XX are
-%               elements of mList.  seq(n).ycsOrthXX has the same dimensions
-%               as seq(n).y.
+% seq         - test data structure with new fields ycsOrthXX, where XX
+%               are elements of mList. seq(n).ycsOrthXX has the same
+%               dimensions as seq(n).y.
 %
 % Code adapted from cosmoother_gpfa_viaOrth_fast.m by Byron Yu
 % and John Cunningham.
@@ -25,7 +25,7 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
 
   if ~params.notes.RforceDiagonal
     fprintf(['ERROR: R must be diagonal to use',...
-             'predict_hmfa_viaOrth_fast.\n']);
+             ' predict_hmfa_viaOrth_fast.\n']);
     return
   end % if ~params.notes.RforceDiagonal
 
@@ -41,26 +41,26 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
     if faType(2)
       TT                            = nan([xDim xDim nStates]);
       Corth                         = nan([yDim xDim nStates]);
-    else
+    else % if ~faType(2)
       TT                            = nan([xDim xDim]);
       Corth                         = nan([yDim xDim]);
-    end % if faType(2)
+    end
     if faType(3)
       Rinv                          = nan([yDim yDim nStates]);
-    else
+    else % if ~faType(3)
       Rinv                          = nan([yDim yDim]);
-    end % if faType(3)
+    end
     CRinv                           = nan([xDim yDim nStates]);
     CRinvC                          = nan([xDim xDim nStates]);
     B                               = nan([xDim xDim nStates]);
-  else
+  else % if ~any(faType(2:3))
     TT                              = nan([xDim xDim]);
     Corth                           = nan([yDim xDim]);
     Rinv                            = nan([yDim yDim]);
     CRinv                           = nan([xDim yDim]);
     CRinvC                          = nan([xDim xDim]);
     B                               = nan([xDim xDim]);
-  end % if any(faType(2:3))
+  end
 
   for j=1:nStates
     jC                              = j*faType(2) + (1 - faType(2));
@@ -90,8 +90,8 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
     T                               = Tall(n);
     
     if ~any(faType(2:3))
-      temp                       	= cell(1,T);
-      [temp{:}]                  	= deal(B);
+      temp                          = cell(1,T);
+      [temp{:}]                     = deal(B);
     end % if ~any(faType(2:3))
 
     Yn                              = seq(n).y;
@@ -128,10 +128,10 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
       if faType(1)
                                     % yDim x T
         dif                         = seq(n).y - d(:,state);
-      else
+      else % if ~faType(1)
                                     % yDim x T
         dif                         = bsxfun(@minus, seq(n).y, d);
-      end % if faType(1)
+      end
       
       if any(faType(2:3))
         CRinv_dif                   = nan(xDim, T);
@@ -142,7 +142,7 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
       else % if ~any(faType(2:3))
                                     % xDim x T
         CRinv_dif                   = CRinv * dif;
-      end % if any(faType(2:3))
+      end
 
       % Downdate invM to remove contribution of electrode i
       ci_invM                       = nan(T, xDim*T);
@@ -156,18 +156,18 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
           
           ci(:,j)                   = C(i,:,jC)' / sqrt(R(i,i,jR));
         end % for j=1:nStates
-      else
+      else % if ~any(faType(2:3))
         ci                          = C(i,:)' / sqrt(R(i,i));
-      end % if any(faType(2:3))
+      end
 
       for t=1:T
         bIdx                        = idx(t):idx(t+1)-1;
         if any(faType(2:3))
           s                         = state(t);
           ci_invM(t,:)              = ci(:,s)' * invM(bIdx,:);
-        else
+        else % if ~any(faType(2:3))
           ci_invM(t,:)              = ci' * invM(bIdx,:);
-        end % if any(faType(2:3))
+        end
       end % for t=1:T
 
       for t=1:T
@@ -175,9 +175,9 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
         if any(faType(2:3))
           s                         = state(t);
           ci_invM_ci(:,t)           = ci_invM(:,bIdx) * ci(:,s);
-        else
+        else % if ~any(faType(2:3))
           ci_invM_ci(:,t)           = ci_invM(:,bIdx) * ci;
-        end % if any(faType(2:3))
+        end
       end % for t=1:T
                                     % T x (xDim*T) 
       term                          = (ci_invM_ci - eye(T)) \ ci_invM;
@@ -190,9 +190,9 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
         for j=1:nStates
           CRinvC_mi(:,:,j)          = CRinvC(:,:,j) - ci(:,j) * ci(:,j)';
         end % for j=1:nStates
-      else
+      else % if ~any(faType(2:3))
         CRinvC_mi                   = CRinvC - ci * ci';
-      end % if any(faType(2:3))
+      end
 
       if any(faType(2:3))
         term1Mat                    = nan([xDim T]);
@@ -206,10 +206,10 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
         end % for t=1:T
                                     % (xDim*T) x 1
         term1Mat                    = term1Mat(:);
-      else
+      else % if ~any(faType(2:3))
         term1Mat                    =...(xDim*T) x 1
           reshape(CRinv_dif - C(i,:)' / R(i,i) * dif(i,:), xDim*T, []);
-      end % if any(faType(2:3))
+      end
 
       % Compute blkProd = CRinvC_big * invM
       blkProd                       = zeros(xDim*T, xDim*T);
@@ -219,9 +219,9 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
         if any(faType(2:3))
           s                         = state(t);
           blkProd(bIdx,:)           = CRinvC_mi(:,:,s) * invM_mi(bIdx,:);
-        else
+        else % if ~any(faType(2:3))
           blkProd(bIdx,:)           = CRinvC_mi * invM_mi(bIdx,:);
-        end % if any(faType(2:3))
+        end
       end % for t=1:T
       blkProd                       = speye(xDim*T) - blkProd;
                                     % (xDim*T) x 1
@@ -234,10 +234,10 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
           s                         = state(t);
           xorth(:,t)                = TT(:,:,s) * xsmMat(:,t);
         end % for t=1:T
-      else
+      else % if ~faType(2)
                                     % xDim x T
         xorth                       = TT * xsmMat;
-      end % if faType(2)
+      end
 
       for m=mList
         fn                          = sprintf('ycsOrth%02d', m);
@@ -250,9 +250,9 @@ function seq = predict_hmfa_viaOrth_fast(seq, params, mList, varargin)
             seq(n).(fn)(i,t)        =...
               Corth(i,1:m,sC) * xorth(1:m,t) + d(i,sd);
           end % for t=1:T
-        else
+        else % if ~any(faType(1:2))
           seq(n).(fn)(i,:)          = Corth(i,1:m) * xorth(1:m,:) + d(i);
-        end % if any(faType(1:2))
+        end
       end % for m=mList
     end % for i=1:yDim
     fprintf('Cross-validation complete for trial %d\r', n);
