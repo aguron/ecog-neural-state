@@ -59,6 +59,8 @@ function [estParams, seq, LL, iterTime] = em_hmm(currentParams, seq, varargin)
   tolHMM                            = 1e-2;
   verbose                           = false;
   freqLL                            = 1;
+  
+  dbg                               = false;
 
   extraOpts                        	= assignopts(who, varargin);
 
@@ -147,18 +149,25 @@ function [estParams, seq, LL, iterTime] = em_hmm(currentParams, seq, varargin)
 
     % Verify that likelihood is growing monotonically
     if (LLi < LLold)
-      fprintf('\nError: Data likelihood has decreased from %g to %g.\n',...
-              LLold, LLi);
-      fprintf('To continue EM algorithm, set dbg = true\n');
-      dbg                           = false;
-      programcontrol
       if (dbg)
-        continue
-      else
-        currentParams               = previousParams;
-        flag_converged             	= true;
-        break
-      end % if (dbg)
+        fprintf(['Error: Data loglikelihood has decreased from %g',...
+                 ' to %g.\nPlease check component Gaussians'' ',...
+                 'positive-definiteness.\n'],...
+                 LLold, LLi);
+        fprintf('To stop the EM algorithm, set terminate = true \n');
+        terminate                 	= false;
+        keyboard
+        if (terminate)
+          currentParams           	= previousParams;
+          flag_converged           	= true;
+          break
+        end % if (terminate)
+      else % if (~dbg)
+        error(['Error: Data loglikelihood has decreased from %g',...
+               ' to %g.\nPlease check component Gaussians'' ',...
+               'positive-definiteness.\n'],...
+              LLold, LLi);
+      end
     elseif (nStates == 1) ||...
            (exist('LLbase','var') &&...
             ((LLi-LLbase) < (1+tolHMM)*(LLold-LLbase)))

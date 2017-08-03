@@ -69,6 +69,8 @@ function [estParams, seq, LL, iterTime] = em_mhmm(currentParams, seq, varargin)
   freqLL                            = 1;
   outliers                          = [];
 
+  dbg                               = false;
+
   extraOpts                        	= assignopts(who, varargin);
 
   nStates                           = currentParams(1).nStates;
@@ -169,23 +171,25 @@ function [estParams, seq, LL, iterTime] = em_mhmm(currentParams, seq, varargin)
 
     % Verify that likelihood is growing monotonically
     if (LLi < LLold)
-      fprintf(['\nError: Data likelihood has decreased from %g to %g.\n',...
-               'Please check component Gaussians'' positive-definiteness.\n'],...
-              LLold, LLi);
-      fprintf(['To continue running EM algorithm, execute USERCONTROL\n',...
-               'in a separate MATLAB instance AND the SAME directory\n'...
-               'where EM_MHMM is being executed before execution gets\n',...
-               'here. When the execution stops, set dbg = true, and\n',...
-               'execute DBCONT\n']);
-      dbg                           = false;
-      programcontrol
       if (dbg)
-        continue
-      else
-        currentParams               = previousParams;
-        flag_converged             	= true;
-        break
-      end % if (dbg)
+        fprintf(['Error: Data loglikelihood has decreased from %g',...
+                 ' to %g.\nPlease check component Gaussians'' ',...
+                 'positive-definiteness.\n'],...
+                 LLold, LLi);
+        fprintf('To stop the EM algorithm, set terminate = true \n');
+        terminate                  	= false;
+        keyboard
+        if (terminate)
+          currentParams           	= previousParams;
+          flag_converged           	= true;
+          break
+        end % if (terminate)
+      else % if (~dbg)
+        error(['Error: Data loglikelihood has decreased from %g',...
+               ' to %g.\nPlease check component Gaussians'' ',...
+               'positive-definiteness.\n'],...
+              LLold, LLi);
+      end
     elseif exist('LLbase','var') &&...
            ((LLi-LLbase) < (1+tolHMM)*(LLold-LLbase))
       flag_converged                = true;

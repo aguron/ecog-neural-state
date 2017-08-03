@@ -72,6 +72,8 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
   minVarFrac                    = 0.01;
   verbose                       = false;
   freqLL                        = 1;
+  
+  dbg                          	= false;
 
   assignopts(who, varargin);
 
@@ -211,18 +213,25 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
     
     % Verify that likelihood is growing monotonically
     if (LLi < LLold)
-      fprintf('\nWarning: Data likelihood has decreased from %g to %g.\n',...
-              LLold, LLi);
-      fprintf('To continue EM algorithm, set dbg = true\n');
-      dbg                      	= false;
-      programcontrol
       if (dbg)
-        continue
-      else
-        currentParams           = previousParams;
-        flag_converged          = true;
-        break
-      end % if (dbg)
+        fprintf(['Error: Data loglikelihood has decreased from %g',...
+                 ' to %g.\nPlease check component Gaussians'' ',...
+                 'positive-definiteness.\n'],...
+                 LLold, LLi);
+        fprintf('To stop the EM algorithm, set terminate = true \n');
+        terminate                  	= false;
+        keyboard
+        if (terminate)
+          currentParams           	= previousParams;
+          flag_converged           	= true;
+          break
+        end % if (terminate)
+      else % if (~dbg)
+        error(['Error: Data loglikelihood has decreased from %g',...
+               ' to %g.\nPlease check component Gaussians'' ',...
+               'positive-definiteness.\n'],...
+              LLold, LLi);
+      end
     elseif exist('LLbase','var') &&...
            ((LLi-LLbase) < (1+tolMFA)*(LLold-LLbase))
       dispLL(false, getLL, LLi);
