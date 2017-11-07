@@ -2,51 +2,68 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
 %
 % [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, ...)
 %
-% Fits MFA model parameters using expectation-maximization (EM) algorithm.
+% Fits MFA model parameters using expectation-maximization (EM) algorithm
 %
-%   yDim: number of electrodes
-%   xDim: state dimensionality
+%   yDim: number of electrodes or channels
+%   xDim: latent neural state dimensionality
 %
 % INPUTS:
 %
-% currentParams - MFA model parameters at which EM algorithm is initialized
-%                   faType (1 x 3)                  -- MFA factor
-%                                                      analyzer(s)
-%                   nMixComp (1 x 1)                -- number of mixture
-%                                                      components
-%                   Pi (1 x nMixComp)               -- mixture component
-%                                                      priors
-%                   d (yDim x nMixComp)             -- observation mean(s)
-%                   C (yDim x xDim x nMixComp)      -- factor loadings
-%                   R (yDim x yDim x nMixComp (1))	-- observation noise
-%                                                      covariance(s)
-% seq           - training data structure, whose nth entry (corresponding
-%                 to the nth experimental trial) has fields
-%                   trialId                     -- unique trial identifier
-%                   segId                       -- segment identifier
-%                                                  within trial
-%                   T (1 x 1)                   -- number of timesteps in 
-%                                                  segment
-%                   y (yDim x T)                -- ECoG data
+% currentParams - MFA model parameters with which EM algorithm is
+%                 initialized in the fields
+%                   faType (1 x 3)                    -- MFA factor
+%                                                        analyzers
+%                                                        specification
+%                   nMixComp (1 x 1)                  -- number of mixture
+%                                                        components
+%                   Pi (1 x nMixComp)                 -- mixture component
+%                                                        priors
+%                   d (yDim x nMixComp)               -- observation means
+%                   C (yDim x xDim x nMixComp (or 1))	-- factor loadings
+%                   R (yDim x yDim x nMixComp (or 1))	-- observation noise
+%                                                        covariance(s)
+%                   notes                             -- has a field
+%                                                        RforceDiagonal
+%                                                        which is set to
+%                                                        true to indicate
+%                                                        that the
+%                                                        observation
+%                                                        covariance(s)
+%                                                        is (are) diagonal
+% seq           - training data structure, whose n-th entry (corresponding
+%                 to the n-th experimental trial) has fields
+%                   trialId         -- unique trial identifier
+%                   segId           -- segment identifier within trial
+%                   trialType       -- trial type index (Optional)
+%                   fs              -- sampling frequency of ECoG data
+%                   T (1 x 1)       -- number of timesteps in segment
+%                   y (yDim x T)  	-- neural data
 %
 % OUTPUTS:
 %
 % estParams     - learned MFA model parameters returned by EM algorithm
 %                   (same format as currentParams)
-% seq           - training data structure with new fields
-%                   mixComp (1 x T)             -- most probable factor
-%                                                  analyzer mixture
-%                                                  component at each
-%                                                  time point
-%                   x (xDim x T x nMixComp)     -- latent neural state at
-%                                                  each time point
-%                   p (nMixComp x T)            -- factor analyzer mixture
-%                                                  component posterior
-%                                                  probabilities at each
-%                                                  time point
-% LL            - data log likelihood after each EM iteration
+% seq           - training data structure with fields
+%                   trialId                 -- unique trial identifier
+%                   segId                   -- segment identifier within 
+%                                              trial
+%                   trialType               -- trial type index (Optional)
+%                   fs                      -- sampling frequency of ECoG
+%                                              data
+%                   T (1 x 1)               -- number of timesteps in
+%                                              segment
+%                   y (yDim x T)            -- neural data
+%                   mixComp (1 x T)        	-- most probable MFA component
+%                                              at each time point
+%                   x (xDim x T x nMixComp)	-- latent neural state at each
+%                                              time point for each MFA
+%                                              mixture component
+%                   p (nMixComp x T)       	-- MFA component posterior
+%                                              probabilities at each time
+%                                              point
+% LL            - data loglikelihood after each EM iteration
 % iterTime      - computation time for each EM iteration
-%               
+%
 % OPTIONAL ARGUMENTS:
 %
 % emMaxIters    - number of EM iterations to run (default: 500)
@@ -59,9 +76,10 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
 %                 (See Martin & McDonald, Psychometrika, Dec 1975.)
 % verbose       - logical that specifies whether to display status messages
 %                 (default: false)
-% freqLL        - data likelihood is computed every freqLL EM iterations. 
-%                 freqLL = 1 means that data likelihood is computed every 
-%                 iteration. (default: 1)
+% freqLL        - data loglikelihood is computed every freqLL EM iterations
+%                 (default: 1)
+%
+% dbg           - set to true for EM debugging mode (default: false)
 %
 % Code adapted from mfa.m by Zoubin Ghahramani.
 %
@@ -79,12 +97,6 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
 
   nMixComp                      = currentParams.nMixComp;
   faType                        = currentParams.faType;
-
-  if ~isequal(faType,[1 1 1]) &&...
-     ~isequal(faType,[1 1 0]) &&...
-     ~isequal(faType,[1 0 0])
-   fprintf('Does not support faType = [%d %d %d]\n',faType);
-  end
 
   [yDim, xDim, ~]               = size(currentParams.C);
 
@@ -169,13 +181,6 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
       EX(:,:,j)                	= (SinvM * C(:,:,jC))';
     end % for j=1:nMixComp
 
-%   Hzero                      	= (sum(H,2)==0);
-%   H(Hzero,:)                 	= eps(0);
-
-%   H                          	= H + eps(0);    
-%   LLi                        	= sum(log(sum(H,2)));
-%   H                          	= normalize(H,2);
-    
     [logH, scale]             	= normalizeLogspace(logH);
     LLi                       	= sum(scale);
     H                          	= exp(logH);
@@ -214,6 +219,7 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
     % Verify that likelihood is growing monotonically
     if (LLi < LLold)
       if (dbg)
+        % For debugging
         fprintf(['Error: Data loglikelihood has decreased from %g',...
                  ' to %g.\nPlease check component Gaussians'' ',...
                  'positive-definiteness.\n'],...
@@ -283,8 +289,13 @@ function [estParams, seq, LL, iterTime] = em_mfa(currentParams, seq, varargin)
         if currentParams.notes.RforceDiagonal
           diagR               	= diag(T0*yAll' - T3*T1')/Hsumsum;
                                 % Set minimum private variance
-          diagR                	= max(varFloor, diagR);
           currentParams.R      	= currentParams.R + diag(diagR);
+          if (j == nMixComp)
+            % Set minimum private variance
+            currentParams.R    	= diag(currentParams.R);
+            currentParams.R    	= max(varFloor, currentParams.R);
+            currentParams.R    	= diag(currentParams.R);
+          end % if (j == nMixComp)
         else
           currentParams.R      	= currentParams.R +...
                                   symm((T0*yAll' - T3*T1')/Hsumsum);

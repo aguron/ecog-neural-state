@@ -2,64 +2,88 @@ function mfaEngine(seqTrain, seqTest, fname, varargin)
 %
 % mfaEngine(seqTrain, seqTest, fname, ...) 
 %
-% Extract neural trajectories using MFA.
+% Model fitting and inference with MFA
 %
-%   yDim: number of electrodes
+%   yDim: number of electrodes or channels
 %
 % INPUTS:
 %
-% seqTrain    - training data structure, whose nth entry (corresponding
-%               to the nth experimental trial) has fields
-%                 trialId (1 x 1)         -- unique trial identifier
-%                 y (# electrodes x T)    -- neural data
-%                 T (1 x 1)               -- number of timesteps
+% seqTrain    - training data structure, whose n-th entry (corresponding
+%               to the n-th experimental trial) has fields
+%                 trialId           -- unique trial identifier
+%                 trialType (1 x 1)	-- trial type index (Optional)
+%                 fs (1 x 1)       	-- sampling frequency of ECoG data
+%                 T (1 x 1)         -- number of timesteps
+%                 y (yDim x T)      -- neural data
 % seqTest     - test data structure (same format as seqTrain)
-% fname       - filename of where results are saved
+% fname       - model filename
 %
 % OPTIONAL ARGUMENTS:
 %
-% xDim        - state dimensionality (default: 3)
-% nMixComp    - number of factor analyzer mixture components (default: 3)
-% faType      - MFA factor analyzer(s) (with tied (0) or untied (1)
-%               mean, factor loading matrix, and covariance parameters)
-%               (default: [1 1 1])
-% binWidth    - ECoG window width in seconds (default: 0.2)
-% kernSD      - Gaussian smoothing kernel width in seconds (default: 0)
-
-% d (yDim x nMixComp)           - observation mean(s)
-% C (yDim x xDim x nMixComp)    - factor loadings (s)
-% R (yDim x yDim x              - observation noise covariance(s)
-%    nMixComp (or 1))
-% Pi (1 x nMixComp)             - mixture component priors
-% mixCompGuess                  - initial component guesses for time points
-%                                 for training data
-
-% prediction  - specifies whether leave-channel-out prediction
-%               should be carried out (default: false)
+% xDim                              - state dimensionality (default: 3)
+% nMixComp                          - number of MFA mixture components
+%                                     (default: 3)
+% faType                            - factor analyzers specification
+%                                     (with tied (0) or untied (1) mean,
+%                                     factor loading matrix, and covariance
+%                                     parameters) (default: [1 1 1])
+%
+% binWidth                          - ECoG window width in seconds
+%                                     (default: 0.2)
+% kernSD                            - Gaussian smoothing kernel width in
+%                                    	seconds. 0 corresponds to no
+%                                     smoothing (default: 0)
+%
+% Replicates                       ]  parameters for
+% Regularize                       ]- MATLAB function
+% Options                          ]  GMDISTRIBUTION.FIT
+%
+% d (yDim x nMixComp)             	- MFA observation means
+% C (yDim x xDim x nMixComp (or 1))	- MFA factor loadings
+% R (yDim x yDim x nMixComp (or 1))	- MFA observation noise covariances
+%
+% Pi (1 x nMixComp)                	- component factor analyzer priors
+%
+% mixCompGuess                    	- cell array of initial component
+%                                     guesses for time points of trials for
+%                                     training data
+%
+% learning                          - indicates whether model fitting
+%                                     should be carried out (default: true)
+% inference                       	- indicates whether latent variables
+%                                     should be inferred for seqTest
+%                                     (default: true)
+% prediction                        - specifies whether
+%                                     leave-one-channel-out prediction
+%                                    	should be carried out
+%                                     (default: false)
 %
 % @ 2016 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
-  xDim                        = 3;
-  nMixComp                    = 3;
-  faType                      = [1 1 1];
-  binWidth                    = 0.2;	% in sec
-  kernSD                      = 0;    % in sec
+  xDim                              = 3;
+  nMixComp                          = 3;
+  faType                            = [1 1 1];
+
+  binWidth                          = 0.2;
+  kernSD                            = 0;
   
-  Replicates                 	= 1;
-  Regularize                  = 0;
-  Options                    	= [];
+  Replicates                        = 1;
+  Regularize                        = 0;
+  Options                           = [];
 
-  d                           = [];
-  C                           = [];
-  R                           = [];
-  Pi                          = [];
-  mixCompGuess                = [];
+  d                                 = [];
+  C                                 = [];
+  R                                 = [];
 
-  learning                   	= true;
-  inference                  	= true;
-  prediction                 	= false;
+  Pi                                = [];
+  
+  mixCompGuess                      = [];
 
-  extraOpts                   = assignopts(who, varargin);
+  learning                          = true;
+  inference                         = true;
+  prediction                        = false;
+
+  extraOpts                         = assignopts(who, varargin);
 
   if (learning)
     if ~any(faType) && (nMixComp > 1)
@@ -81,60 +105,71 @@ function mfaEngine(seqTrain, seqTest, fname, varargin)
       % ========================
 
       % Training data
-      seqTrainOrig           	= seqTrain;
+      seqTrainOrig                  = seqTrain;
       for n=1:length(seqTrain)
-        seqTrain(n).y         = smoother(seqTrain(n).y, kernSD, binWidth);
+        seqTrain(n).y               =...
+         smoother(seqTrain(n).y, kernSD, binWidth);
       end % for n=1:length(seqTrain)
 
       % Test data
-      seqTestOrig            	= seqTest;
+      seqTestOrig                   = seqTest;
       for n=1:length(seqTest)
-        seqTest(n).y         	= smoother(seqTest(n).y, kernSD, binWidth);
+        seqTest(n).y                =...
+         smoother(seqTest(n).y, kernSD, binWidth);
       end % for n=1:length(seqTest)
     end % if (kernSD)
 
-    % For compute efficiency, train on equal-length segments of trials
-    seqTrainCut             	= cutTrials(seqTrain, extraOpts{:});
+    % Resegment trials for training
+    [seqTrainCut, resegTrlGuess]    =...
+      resegmenttrials(seqTrain,...
+                      'method', 'mfa',...
+                      'mixCompGuess', mixCompGuess,...
+                      extraOpts{:});
     if isempty(seqTrain)
-      fprintf('No segments extracted for training.\n');
+      fprintf('No segments for training.\n');
     elseif isempty(seqTrainCut)
       fprintf(['WARNING: no segments extracted for training.',...
                ' Defaulting to segLength=Inf.\n']);
-      seqTrainCut             = cutTrials(seqTrain, 'segLength', Inf);
-    end % if isempty(seqTrainCut)
-
-    yAll                      = [seqTrainCut.y];
-    if ~isempty(yAll)
-      yDim                   	= size(yAll, 1);
-    else % if isempty(yAll)
-      yDim                    = size([seqTest.y], 1);
+      [seqTrainCut, resegTrlGuess]	=...
+        resegmenttrials(seqTrain,...
+                        'method', 'mfa',...
+                        'mixCompGuess', mixCompGuess,...
+                        'segLength', Inf);
     end
 
-    initStatus                =...
+    yAll                            = [seqTrainCut.y];
+    if ~isempty(yAll)
+      yDim                          = size(yAll, 1);
+    else % if isempty(yAll)
+      yDim                          = size([seqTest.y], 1);
+    end
+
+    initStatus                      =...
       ~[isempty(d) isempty(C) isempty(R) isempty(Pi)];
     if all(~initStatus) && ~isempty(seqTrainCut)
       fprintf('Initializing parameters using GMM...\n');
 
-      args                    =...
+      args                          =...
         {'Replicates', Replicates,...
          'CovType', 'diagonal', 'SharedCov', ~faType(3),...
          'Regularize', Regularize, 'Options', Options};
-      if ~isempty(mixCompGuess)
-        args                  = [args, 'Start', cell2mat(mixCompGuess)];
-      end % if ~isempty(mixCompGuess)
-      obj                    	= gmdistribution.fit(yAll',nMixComp,args{:});
+      if ~isempty(resegTrlGuess.mixComp)
+        args                        =...
+         [args, 'Start', cell2mat(resegTrlGuess.mixComp)];
+      end % if ~isempty(resegTrlGuess.mixComp)
+      obj                           =...
+       gmdistribution.fit(yAll',nMixComp,args{:});
     end % if all(~initStatus) && ~isempty(seqTrainCut)
 
     % ==================================
     % Initialize mixture model parameters
     % ==================================
-    startParams.nMixComp      = nMixComp;
-    startParams.faType       	= faType;
+    startParams.nMixComp            = nMixComp;
     if exist('obj','var')
-      startParams.Pi          = obj.PComponents;
+      startParams.Pi                = obj.PComponents;
     elseif ~any(~initStatus)
       fprintf('Initializing parameters with input...\n');
-      startParams.Pi        	= Pi;
+      startParams.Pi                = Pi;
     else
       error(['d, C, R, and Pi must all be specified',...
              ' if there is no data for training.']);
@@ -144,23 +179,23 @@ function mfaEngine(seqTrain, seqTest, fname, varargin)
     % Initialize observation model parameters
     % ========================================
     if exist('obj','var')
-      startParams.d           = obj.mu';
+      startParams.d                 = obj.mu';
       for j=1:nMixComp
-        jC                   	= j*faType(2) + (1 - faType(2));
-        jR                    = j*faType(3) + (1 - faType(3));
+        jC                          = j*faType(2) + (1 - faType(2));
+        jR                          = j*faType(3) + (1 - faType(3));
 
-        startParams.C(:,:,jC)	= eye(yDim,xDim);
-        startParams.R(:,:,jR) = diag(obj.Sigma(:,:,jR));
+        startParams.C(:,:,jC)       = eye(yDim,xDim);
+        startParams.R(:,:,jR)       = diag(obj.Sigma(:,:,jR));
       end % for j=1:nMixComp
     elseif ~any(~initStatus)
-      startParams.d           = d;
-      startParams.C           = C;
-      startParams.R           = R;
+      startParams.d                 = d;
+      startParams.C                 = C;
+      startParams.R                 = R;
     end
 
     % Define parameter constraints
-    startParams.notes.RforceDiagonal...
-                              = true;
+    startParams.notes.RforceDiagonal= true;
+   	startParams.faType              = faType;                      
 
     if ~isempty(seqTrainCut)
       % =====================
@@ -169,34 +204,34 @@ function mfaEngine(seqTrain, seqTest, fname, varargin)
       fprintf('\nFitting MFA model...\n');
 
       [estParams, seqTrainCut, LL, iterTime]...
-                              = em_mfa(startParams, seqTrainCut,...
-                                       extraOpts{:});
+                                   	=...
+        em_mfa(startParams, seqTrainCut, extraOpts{:});
 
       % Extract neural trajectories for original, unsegmented trials
       % using learned parameters
-      [~, seqTrain, LLorig] 	=...
+      [~, seqTrain, LLorig]         =...
         em_mfa(estParams, seqTrain, 'emMaxIters', 0);
     else % if isempty(seqTrainCut)
-      estParams             	= startParams;
+      estParams                     = startParams;
     end
   else % if (~learning)
-    estParams                	= loadvars(fname, 'estParams');
+    estParams                       = loadvars(fname, 'estParams');
     if (inference)
       if ~isempty(seqTrain)
         % Extract neural trajectories for original, unsegmented trials
         % using learned parameters
-        [~, seqTrain, LLorig] =...
+        [~, seqTrain, LLorig]       =...
           em_mfa(estParams, seqTrain, 'emMaxIters', 0);
       end % if ~isempty(seqTrain)
     end % if (inference)
   end
   
   if ~isempty(seqTest) % check if there are any test trials
-    % =========================================
-    % Leave-channel-out prediction on test data
-    % =========================================
+    % =============================================
+    % Leave-one-channel-out prediction on test data
+    % =============================================
     if prediction && estParams.notes.RforceDiagonal
-      seqTest                 =...
+      seqTest                       =...
         predict_mfa_fast(seqTest, estParams, varargin{:});
     end
 
@@ -204,7 +239,7 @@ function mfaEngine(seqTrain, seqTest, fname, varargin)
     % Neural trajectories and loglikelihood for test data
     % ===================================================
     if (inference)
-      [~, seqTest, LLtest]   	=...
+      [~, seqTest, LLtest]          =...
         em_mfa(estParams, seqTest, 'emMaxIters', 0);
     end % if (inference)
   end % if ~isempty(seqTest)
@@ -213,7 +248,7 @@ function mfaEngine(seqTrain, seqTest, fname, varargin)
   % Save results
   % =============
   if (learning)
-    vars                    	= who;
+    vars                            = who;
     fprintf('Saving %s...\n', fname);
     save(fname, vars{~ismember(vars, {'yAll'})});
   elseif inference || prediction

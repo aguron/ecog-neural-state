@@ -3,50 +3,71 @@ function [startParams, mixCompGuess, outliers] =...
 %
 % init_mhmm(seq, fname, ...)
 %
-% Initialization for MHMM.
+% MHMM initialization
 %
-%   yDim: number of electrodes
+%   yDim: number of electrodes or channels
 %
 % INPUTS:
 %
-% seq         - data structure, whose nth entry (corresponding
-%               to the nth experimental trial) has fields
-%                 trialId (1 x 1)         -- unique trial identifier
-%                 y (# electrodes x T)    -- neural data
-%                 T (1 x 1)               -- number of timesteps
-% fname       - model filename
+% seq           - data structure, whose n-th entry (corresponding
+%                 to the n-th experimental trial) has fields
+%                   trialId           -- unique trial identifier
+%                   trialType (1 x 1)	-- trial type index (Optional)
+%                   fs (1 x 1)       	-- sampling frequency of ECoG data
+%                   T (1 x 1)         -- number of timesteps
+%                   y (yDim x T)      -- neural data
+% fname         - model filename
+%
+% OUTPUTS:
+%
+% startParams   - parameters from initialization
+% mixCompGuess 	- vector of initial component HMM guesses for training
+%                 trials. Use an index of 0 if there is no guess for a 
+%                 trial; an index between 1 and nMixComp (inclusive), if
+%                 the trial is to be used in initialization; and an index
+%                	between -nMixComp and -1 (inclusive), if the trial is not 
+%                 to be used in model fitting
+% outliers      - trials identified as outliers. Index corresponds to
+%                 position in seq
 %
 % OPTIONAL ARGUMENTS:
 %
-% nStates     - number of HMM states (default: 3)
-% CovType
-% nMixComp    - number of MHMFA mixture components (default: 3)
-
-% stateGuess                      - initial state guesses for time points
-%                                 	for training data
-% mixCompGuess                    - initial MHMFA component guesses
-%                                   for training data: use an index of
-%                                   0 if there is no guess for a trial
-%                                   mixComp; an index between 1 and
-%                                   nMixComp inclusive, if the mixComp
-%                                   guess is to be used in the
-%                                   initialization; and an index between
-%                                   -1 and -nMixComp inclusive, if the
-%                                   mixComp guess is not to be used in the
-%                                   initialization
+% nMixComp      - number of MHMM mixture components (default: 3)
+% nStates       - number of Markov (HMM) states (default: 3)
+% CovType       - component HMM covariance type: 'full' or
+%                 'diagonal' (default: 'diagonal')
+% SharedCov     - component HMM covariance tied (true) or untied (false)
+%                 (default: false)
+%
+% Replicates   ]  
+% Regularize   ]- parameters for MATLAB function GMDISTRIBUTION.FIT
+% Options      ]  
+%
+% stateGuess    - cell array of initial state guesses for time points of
+%                 trials for training data
+%
+% mixCompGuess 	- same as mixCompGuess above
+% outlierThr    - if the fraction of trials that a trial is the most
+%                 dissimilar from is below this threshold, that trial
+%                 is not designated as an outlier
+% skipSeq       - if true, only one attempt is made to fit an HMM to
+%                 each trial, and trials with unsuccessful model fitting
+%                 first attempts are skipped; if false, any unsuccessful
+%                 model fit results in an error
 %
 % @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
+  nMixComp                                  = 3;
   nStates                                   = 3;
   CovType                                   = 'diagonal';
-  nMixComp                                  = 3;
+  SharedCov                                 = false;
 
   Replicates                                = 1;
-  SharedCov                                 = false;
   Regularize                               	= 0;
   Options                                   = [];
 
   stateGuess                                = [];
+
   mixCompGuess                              = [];
   outlierThr                                = 0.5;
   skipSeq                                   = true;
@@ -142,7 +163,7 @@ function [startParams, mixCompGuess, outliers] =...
     omitted                                 = find(isnan(diag(L_symm)))';
 
     % Saving variables
-    fprintf('Saving %s...\n', fname);
+    fprintf('Saving %s...\n\n', fname);
     vars                                    = who;
     save(fname, vars{~ismember(vars, {'hmm'})});
   end

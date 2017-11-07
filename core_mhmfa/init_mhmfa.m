@@ -3,69 +3,77 @@ function [startParams, mixCompGuess, outliers] =...
 %
 % init_mhmfa(seq, fname, ...)
 %
-% Initialization for MHMFA.
+% MHMFA initialization
 %
-%   yDim: number of electrodes
+%   yDim: number of electrodes or channels
 %
 % INPUTS:
 %
-% seq         - data structure, whose nth entry (corresponding
-%               to the nth experimental trial) has fields
-%                 trialId (1 x 1)         -- unique trial identifier
-%                 y (# electrodes x T)    -- neural data
-%                 T (1 x 1)               -- number of timesteps
-% fname       - model filename
+% seq           - data structure, whose n-th entry (corresponding
+%                 to the n-th experimental trial) has fields
+%                   trialId           -- unique trial identifier
+%                   trialType (1 x 1)	-- trial type index (Optional)
+%                   fs (1 x 1)       	-- sampling frequency of ECoG data
+%                   T (1 x 1)         -- number of timesteps
+%                   y (yDim x T)      -- neural data
+% fname         - model filename
+%
+% OUTPUTS:
+%
+% startParams   - parameters from initialization
+% mixCompGuess 	- vector of initial component HMFA guesses for training
+%                 trials. Use an index of 0 if there is no guess for a 
+%                 trial; an index between 1 and nMixComp (inclusive), if
+%                 the trial is to be used in initialization; and an index
+%                	between -nMixComp and -1 (inclusive), if the trial is not 
+%                 to be used in model fitting
+% outliers      - trials identified as outliers. Index corresponds to
+%                 position in seq
 %
 % OPTIONAL ARGUMENTS:
 %
-% xDim        - state dimensionality (default: 3)
-% nStates     - number of HMFA states (default: 3)
-% faType      - HMFA factor analyzer(s) (with tied (0) or untied (1)
-%               mean, factor loading matrix, and covariance parameters)
-%               (default: [1 1 1])
-% nMixComp    - number of MHMFA mixture components (default: 3)
-
-% stateGuess                      - initial state guesses for time points
-%                                 	for training data
-% mixCompGuess                    - initial MHMFA component guesses
-%                                   for training data: use an index of
-%                                   0 if there is no guess for a trial
-%                                   mixComp; an index between 1 and
-%                                   nMixComp inclusive, if the mixComp
-%                                   guess is to be used in the
-%                                   initialization; and an index between
-%                                   -1 and -nMixComp inclusive, if the
-%                                   mixComp guess is not to be used in the
-%                                   initialization
+% xDim          - state dimensionality (default: 3)
+% nMixComp      - number of MHMFA mixture components (default: 3)
+% nStates       - number of Markov (HMFA) states (default: 3)
+% faType        - component HMFA factor analyzers specification
+%                 (with tied (0) or untied (1) mean, factor loading matrix,
+%                 and covariance parameters) (default: [1 1 1])
+%
+% Replicates   ]  
+% Regularize   ]- parameters for MATLAB function GMDISTRIBUTION.FIT
+% Options      ]  
+%
+% stateGuess    - cell array of initial state guesses for time points of
+%                 trials for training data
+%
+% mixCompGuess 	- same as mixCompGuess above
+% outlierThr    - if the fraction of trials that a trial is the most
+%                 dissimilar from is below this threshold, that trial
+%                 is not designated as an outlier
+% skipSeq       - if true, only one attempt is made to fit an HMFA to
+%                 each trial, and trials with unsuccessful model fitting
+%                 first attempts are skipped; if false, any unsuccessful
+%                 model fit results in an error
 %
 % @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
   xDim                                      = 3;
+  nMixComp                                  = 3;
   nStates                                   = 3;
   faType                                    = [1 1 1];
-  nMixComp                                  = 3;
 
   Replicates                                = 1;
   Regularize                               	= 0;
   Options                                   = [];
 
   stateGuess                                = [];
+
   mixCompGuess                              = [];
   outlierThr                                = 0.5;
   skipSeq                                   = true;
 
   extraOpts                                 = assignopts(who, varargin);
 
-  if ~any(faType) && (nStates > 1)
-    error(['At least one of the factor analyzer parameters must ',...
-           'be untied if nStates > 1']);
-  end % if ~any(faType) && (nStates > 1)
-
-  if ~isequal(faType,[1 1 1]) &&...
-     ~isequal(faType,[1 1 0])
-    fprintf('Does not support faType = [%d %d %d]\n', faType);
-  end
-  
   if isempty(seq)
     error('No trials for initialization');
   end % if isempty(seq)
@@ -79,7 +87,7 @@ function [startParams, mixCompGuess, outliers] =...
            rstrtok(fname,'/'), xDim, nStates, faTypeSpec(faType+1));
   if ~isnan(str2double(str(end)))
     fname                                   = sprintf('%s%s', fname, str);
-  end % if ~isnan(str2double(str(end)))
+  end
 
   if exist([fname '.mat'], 'file')
     if isempty(mixCompGuess)
@@ -167,10 +175,11 @@ function [startParams, mixCompGuess, outliers] =...
 
     % Symmetrize L
     L_symm                                  = symm(L);
+    % Identify trials skipped in model fitting
     omitted                                 = find(isnan(diag(L_symm)))';
 
     % Saving variables
-    fprintf('Saving %s...\n', fname);
+    fprintf('Saving %s...\n\n', fname);
     vars                                    = who;
     save(fname, vars{~ismember(vars, {'faTypeSpec', 'mixCompMFA',...
                                       'hmm'})});
@@ -275,8 +284,8 @@ function [startParams, mixCompGuess, outliers] =...
     
     % Define parameter constraints
     if (k == 1)
-      startParams(1).faType                	= faType;
       startParams(1).notes.RforceDiagonal  	= true;
+      startParams(1).faType                	= faType;
     end % if (k == 1)
   end % for k=1:nMixComp
 end

@@ -2,75 +2,112 @@ function [estParams, seq, LL, iterTime] = em_mhmfa(currentParams, seq, varargin)
 %
 % [estParams, seq, LL, iterTime] = em_mhmfa(currentParams, seq, ...)
 %
-% Fits MHMFA model parameters using expectation-maximization (EM) algorithm.
+% Fits MHMFA model parameters using the Alternating Expectation Conditional
+% Maximization (AECM) algorithm
 %
-%   yDim: number of electrodes
-%   xDim: state dimensionality
+%   yDim: number of electrodes or channels
+%   xDim: latent neural state dimensionality
 %
 % INPUTS:
 %
-% currentParams - HMFA model parameters at which EM algorithm is initialized
-%                   faType (1 x 3)                  -- HMFA factor analyzer(s)
-%                   nStates (1 x 1)                 -- number of HMFA states
-%                   pi (1 x nStates)                -- start probabilities
-%                   piPrior (1 x nStates)           -- pseudo counts for HMM
-%                                                      start probabilities
-%                   trans (nStates x nStates)       -- transition matrix
-%                   transPrior (nStates x nStates)  -- pseudo counts for HMM
-%                                                      transition matrix
-%                   d (yDim x nStates)              -- observation mean(s)
-%                   C (yDim x xDim x nStates)       -- factor loadings (s)
-%                   R (yDim x yDim x nStates)       -- observation noise
-%                                                      covariance(s)
-% seq           - training data structure, whose nth entry (corresponding to
-%                 the nth experimental trial) has fields
-%                   trialId      -- unique trial identifier
-%                   segId        -- segment identifier within trial
-%                   T (1 x 1)    -- number of timesteps in segment
-%                   y (yDim x T) -- ECoG data
+% currentParams - MHMFA model parameters with which AECM algorithm is
+%                 initialized in the fields (with the k-th entry of the
+%                 structure corresponding to the k-th component HMFA while
+%                 faType, nMixComp, nStates, and notes are only specified
+%                 in the 1st entry)
+%                   faType (1 x 3)                    -- HMFA factor
+%                                                        analyzers
+%                                                        specification
+%                   nMixComp (1 x 1)                  -- number of
+%                                                        component HMFAs
+%                   nStates (1 x 1)                   -- number of HMFA
+%                                                        states
+%                   pi (1 x nStates)                  -- start 
+%                                                        probabilities
+%                   piPrior (1 x nStates)             -- pseudo counts
+%                                                        for start
+%                                                        probabilities
+%                   trans (nStates x nStates)         -- transition matrix
+%                   transPrior (nStates x nStates)    -- pseudo counts for
+%                                                        transition matrix
+%                   Pi (1 x nMixComp)                 -- component HMFA
+%                                                        priors
+%                   d (yDim x nStates)                -- observation means
+%                   C (yDim x xDim x nStates (or 1))	-- factor loadings
+%                   R (yDim x yDim x nStates (or 1))	-- observation noise
+%                                                        covariances
+%                   notes                             -- has a field
+%                                                        RforceDiagonal
+%                                                        which is set to
+%                                                        true to indicate
+%                                                        that the
+%                                                        observation
+%                                                        covariances
+%                                                        are diagonal
+%
+% seq           - training data structure, whose n-th entry (corresponding
+%                 to the n-th experimental trial) has fields
+%                   trialId         -- unique trial identifier
+%                   segId           -- segment identifier within trial
+%                   trialType       -- trial type index (Optional)
+%                   fs              -- sampling frequency of ECoG data
+%                   T (1 x 1)       -- number of timesteps in segment
+%                   y (yDim x T)  	-- neural data
 %
 % OUTPUTS:
 %
-% estParams     - learned HMFA model parameters returned by EM algorithm
+% estParams     - learned MHMFA model parameters returned by AECM algorithm
 %                   (same format as currentParams)
-% seq           - training data structure with new fields
-%                 state (1 x T)             -- factor analyzer state
-%                                              at each time point
-%                 mixComp (1 x 1)           -- most probable factor 
-%                                              MHMFA mixture component
-%                 x (xDim x T x nStates)    -- latent neural state
-%                                              at each time point
-%                 p (nStates x T)           -- factor analyzer state
-%                                              probabilities at each
+% seq           - training data structure with fields
+%                   trialId                 -- unique trial identifier
+%                   segId                   -- segment identifier within 
+%                                              trial
+%                   trialType               -- trial type index (Optional)
+%                   fs                      -- sampling frequency of ECoG
+%                                              data
+%                   T (1 x 1)               -- number of timesteps in
+%                                              segment
+%                   y (yDim x T)            -- neural data
+%                   mixComp (1 x 1)        	-- most probable component HMFA
+%                   state (1 x T x         	-- HMFA state at each time
+%                          nMixComp)           point (from the Viterbi
+%                                              path)
+%                   x (xDim x T x nStates   -- latent neural state at each
+%                      x nMixComp)             time point
+%                   p (nStates x T          -- factor analyzer state
+%                      x nMixComp)             probabilities at each
 %                                              time point (please see
 %                                              EXACTINFERENCEWITHLL_MHMFA
 %                                              for details)
-%                 P (1 x nMixComp)         	-- MHMFA mixture component
-%                                              posterior probabilities
-% LL            - data log likelihood after each EM iteration
-% iterTime      - computation time for each EM iteration
-%               
+%                   P (1 x nMixComp)      	-- component HMFA posterior
+%                                              probabilities
+% LL            - data loglikelihood after each AECM iteration
+% iterTime      - computation time for each AECM iteration
+%
 % OPTIONAL ARGUMENTS:
 %
-% emMaxIters    - number of EM iterations to run (default: 500)
-% tolHMFA       - stopping criterion for EM (default: 1e-2)
-% minVarFrac    - fraction of overall data variance for each observed dimension
-%                 to set as the private variance floor.  This is used to combat
-%                 Heywood cases, where ML parameter learning returns one or more
-%                 zero private variances. (default: 0.01)
+% emMaxIters    - number of AECM iterations to run (default: 500)
+% tolMHMFA     	- stopping criterion for AECM (default: 1e-2)
+% minVarFrac    - fraction of overall data variance for each observed
+%                 dimension to set as the private variance floor.  This 
+%                 is used to combat Heywood cases, where ML parameter 
+%                 learning returns one or more zero private variances.
+%                 (default: 0.01)
 %                 (See Martin & McDonald, Psychometrika, Dec 1975.)
 % verbose       - logical that specifies whether to display status messages
 %                 (default: false)
-% freqLL        - data likelihood is computed every freqLL EM iterations. 
-%                 freqLL = 1 means that data likelihood is computed every 
-%                 iteration. (default: 1)
+% freqLL        - data loglikelihood is computed every freqLL AECM 
+%                 iterations (default: 1)
+% outliers      - vector of indices of outlier trials in seq (default: [])
+%
+% dbg           - set to true for AECM debugging mode (default: false)
 %
 % Code adapted from em.m by Byron Yu and John Cunningham.
 %
 % @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
   emMaxIters                        = 500;
-  tolHMFA                           = 1e-2;
+  tolMHMFA                         	= 1e-2;
   minVarFrac                        = 0.01;
   verbose                           = false;
   freqLL                            = 1;
@@ -80,14 +117,9 @@ function [estParams, seq, LL, iterTime] = em_mhmfa(currentParams, seq, varargin)
 
   extraOpts                        	= assignopts(who, varargin);
 
-  nStates                           = currentParams(1).nStates;
   faType                            = currentParams(1).faType;
   nMixComp                          = currentParams(1).nMixComp;
-  
-  if ~isequal(faType,[1 1 1]) &&...
-     ~isequal(faType,[1 1 0])
-    fprintf('Does not support faType = [%d %d %d]\n',faType);
-  end
+  nStates                           = currentParams(1).nStates;
 
   [yDim, xDim, ~]                   = size(currentParams(1).C);
 
@@ -196,19 +228,34 @@ function [estParams, seq, LL, iterTime] = em_mhmfa(currentParams, seq, varargin)
       end % for k=1:nMixComp
     end % for j=1:nStates
 
-    for j=1:nStates
+    if faType(2)
+      for j=1:nStates
+        for k=1:nMixComp
+          currentParams(k).C(:,:,j)	= YY_ddBeta(:,:,j,k)/EXX(:,:,j,k);
+        end % for k=1:nMixComp
+      end % for j=1:nStates
+    else % if ~faType(2)
       for k=1:nMixComp
-        currentParams(k).C(:,:,j)   = YY_ddBeta(:,:,j,k)/EXX(:,:,j,k);
+        currentParams(k).C         	=...
+         sum(bsxfun(@times,...
+                    YY_ddBeta(:,:,:,k),...
+                    reshape(ess(k).wsum,1,1,[])),...
+             3) /...
+         sum(bsxfun(@times,...
+                    EXX(:,:,:,k),...
+                    reshape(ess(k).wsum,1,1,[])),...
+             3);        
       end % for k=1:nMixComp
-    end % for j=1:nStates
+    end
 
     if faType(3)
       for j=1:nStates
         for k=1:nMixComp
+          jC                       	= j*faType(2) + (1 - faType(2));
           if currentParams(1).notes.RforceDiagonal
            diagR                  	=...
             diag(YY_dd(:,:,j,k)) -...
-            sum(YY_ddBeta(:,:,j,k) .* currentParams(k).C(:,:,j), 2);
+            sum(YY_ddBeta(:,:,j,k) .* currentParams(k).C(:,:,jC), 2);
 
            % Set minimum private variance
            diagR                    = max(varFloor, diagR);
@@ -216,7 +263,7 @@ function [estParams, seq, LL, iterTime] = em_mhmfa(currentParams, seq, varargin)
           else % if ~currentParams(1).notes.RforceDiagonal
            currentParams(k).R(:,:,j)=...
           	YY_dd(:,:,j,k) -...
-            currentParams(k).C(:,:,j) * YY_ddBeta(:,:,j,k)';
+            currentParams(k).C(:,:,jC) * YY_ddBeta(:,:,j,k)';
           
            % ensure symmetry
            currentParams(k).R(:,:,j)= symm(currentParams(k).R(:,:,j));
@@ -227,23 +274,32 @@ function [estParams, seq, LL, iterTime] = em_mhmfa(currentParams, seq, varargin)
       for k=1:nMixComp
         currentParams(k).R(:)       = 0;    
         for j=1:nStates
+          jC                      	= j*faType(2) + (1 - faType(2));
           if currentParams(1).notes.RforceDiagonal
             diagR                  	=...
              ess(k).wsum(j)*...
              (diag(YY_dd(:,:,j,k)) -...
-              sum(YY_ddBeta(:,:,j,k) .* currentParams(k).C(:,:,j), 2));
+              sum(YY_ddBeta(:,:,j,k) .* currentParams(k).C(:,:,jC), 2));
 
-            % Set minimum private variance
-            diagR                  	= max(varFloor, diagR);
             currentParams(k).R     	= currentParams(k).R + diag(diagR);
+            if (j == nStates)
+              currentParams(k).R   	= currentParams(k).R/sum(ess(k).wsum);
+              % Set minimum private variance
+              currentParams(k).R  	= diag(currentParams(k).R);
+              currentParams(k).R   	= max(varFloor, currentParams(k).R);
+              currentParams(k).R  	= diag(currentParams(k).R);
+            end % if (j == nStates)
           else % if ~currentParams(1).notes.RforceDiagonal
+            % ensure symmetry
             currentParams(k).R     	= currentParams(k).R +...
               ess(k).wsum(j)*...
               symm(YY_dd(:,:,j,k) -...
-                   currentParams(k).C(:,:,j) * YY_ddBeta(:,:,j,k)');
+                   currentParams(k).C(:,:,jC) * YY_ddBeta(:,:,j,k)');
+            if (j == nStates)
+              currentParams(k).R  	= currentParams(k).R/sum(ess(k).wsum);
+            end % if (j == nStates)
           end
         end % for j=1:nStates
-        currentParams(k).R         	= currentParams(k).R/sum(ess(k).wsum);
       end % for k=1:nMixComp
     end
 
@@ -268,6 +324,7 @@ function [estParams, seq, LL, iterTime] = em_mhmfa(currentParams, seq, varargin)
     % Verify that likelihood is growing monotonically
     if (LLi < LLold)
       if (dbg)
+        % For debugging
         fprintf(['Error: Data loglikelihood has decreased from %g',...
                  ' to %g.\nPlease check component Gaussians'' ',...
                  'positive-definiteness.\n'],...
@@ -287,7 +344,7 @@ function [estParams, seq, LL, iterTime] = em_mhmfa(currentParams, seq, varargin)
               LLold, LLi);
       end
     elseif exist('LLbase','var') &&...
-           ((LLi-LLbase) < (1+tolHMFA)*(LLold-LLbase))
+           ((LLi-LLbase) < (1+tolMHMFA)*(LLold-LLbase))
       flag_converged                = true;
       break
     else
@@ -302,7 +359,7 @@ function [estParams, seq, LL, iterTime] = em_mhmfa(currentParams, seq, varargin)
     exactInferenceWithLL_mhmfa(seq, currentParams,...
                                'getSeq', true,...
                                extraOpts{:});
-  
+
   fprintf('\n');
   if flag_converged
     fprintf('Fitting has converged after %d EM iterations.\n', numel(LL));

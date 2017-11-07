@@ -1,6 +1,22 @@
 function L = removeoutliertrials(L, thr)
-%REMOVEOUTLIERTRIALS
-%   
+%REMOVEOUTLIERTRIALS Recursively identifies outlier trials
+%
+% INPUTS:
+%
+% L             - symmetrized loglikelihood "distance" matrix
+%
+% OUTPUTS:
+%
+% L             - symmetrized loglikelihood "distance" matrix with
+%                 outlier rows and columns set to NaN
+%
+% OPTIONAL ARGUMENTS:
+%
+% thr           - if the number of trials that a trial is the most
+%                 dissimilar from is below this threshold, that trial
+%                 is not designated as an outlier (default: size(L,1)-1)
+%
+% @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
   nModels               = size(L,1);
 

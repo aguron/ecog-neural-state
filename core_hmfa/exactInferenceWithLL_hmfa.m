@@ -2,51 +2,63 @@ function [seq, ess, LL] = exactInferenceWithLL_hmfa(seq, params, varargin)
 %
 % [seq, ess, LL] = exactInferenceWithLL_hmfa(seq, params,...)
 %
-% Extracts latent trajectories given HMFA model parameters.
+% Infers latent variables given HMFA model parameters
 %
 % INPUTS:
 %
-% seq         - data structure, whose nth entry (corresponding to the nth
+% seq         - data structure, whose n-th entry (corresponding to the n-th
 %               experimental trial) has fields
-%                 y (yDim x T) -- neural data
-%                 T (1 x 1)    -- number of timesteps
-% params      - HMFA model parameters
-%  
+%               	trialId         -- unique trial identifier
+%                	segId           -- segment identifier within trial
+%                	trialType       -- trial type index (Optional)
+%                	fs              -- sampling frequency of ECoG data
+%                	T (1 x 1)       -- number of timesteps in segment
+%                	y (yDim x T)  	-- neural data
+% params      - HMFA model parameters (same format as currentParams
+%               in EM_HMFA)
+%
 % OUTPUTS:
 %
-% seq         - training data structure with new fields
-%                 state (1 x T)             -- factor analyzer state
-%                                              at each time point
-%                 x (xDim x T x nStates)    -- latent neural state
-%                                              at each time point
-%                 p (nStates x T)           -- defined RECURSIVELY at 
-%                                              time t (1 <= t <= T) as 
-%                                              the probability of the 
-%                                              most probable sequence of 
-%                                              length t-1 for each factor
-%                                              analyzer hidden state
-%                                              at time t, given the
-%                                              observations from 1 to t
+% seq        	- data structure with fields
+%                 trialId                 -- unique trial identifier
+%                 segId                   -- segment identifier within 
+%                                            trial
+%                 trialType               -- trial type index (Optional)
+%                 fs                      -- sampling frequency of ECoG
+%                                            data
+%                 T (1 x 1)               -- number of timesteps in
+%                                            segment
+%                 y (yDim x T)            -- neural data
+%                 state (1 x T)           -- HMFA state at each time
+%                                            point (from the Viterbi path)
+%                 x (xDim x T x nStates)	-- latent neural state at each
+%                                            time point for each HMFA state
+%                 p (nStates x T)       	-- defined RECURSIVELY at 
+%                                            time t (1 <= t <= T) as 
+%                                            the probability of the 
+%                                            most probable sequence of 
+%                                            length t-1 for each factor
+%                                            analyzer hidden state
+%                                            at time t, given the
+%                                            observations from 1 to t
 % ess         - expected sufficient statistics structure with fields
-%                 startCounts
-%                 transCounts
-%                 weights
-%                 wsum
-%                 ybar
-% LL          - data log likelihood
+%                 startCounts             -- for start probabilities
+%                 transCounts             -- for transition matrix
+%                 weights                 -- smoothed marginals
+%                 wsum                    -- sum of smoothed marginals over
+%                                            time
+%                 ybar                    -- observation means estimate
+% LL          - data loglikelihood
 %
 % OPTIONAL ARGUMENTS:
 %
-% condNumLim  - upper limit of condition number of covariance
-%               for each factor analyzer (default: 1e6)
 % getLL       - logical that specifies whether to compute
-%               data log likelihood (default: false)
+%               data loglikelihood (default: false)
 % getSeq      - logical that specifies whether to compute
-%               seq fields (default: false)
+%               new seq fields in output (default: false)
 %
 % @ 2015 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
-  condNumLim                    = 1e6;
   getLL                         = false;
   getSeq                        = false;
   
@@ -92,11 +104,6 @@ function [seq, ess, LL] = exactInferenceWithLL_hmfa(seq, params, varargin)
   % emission.Sigma(:,:,j)       =...
   %   inv(temp - temp2 / (eye(xDim) + C(:,:,jC)' * temp2) * temp2');
     emission.Sigma(:,:,j)       = C(:,:,jC)*C(:,:,jC)' + R(:,:,jR);
-    condNum                     = cond(emission.Sigma(:,:,j));
-    if (condNum > condNumLim)
-      error(['Covariance matrix of Gaussian distribution (state %d) ',...
-             'has a large condition number (%d)'], j, condNum);
-    end % if (condNum > condNumLim)
   end % for j=1:nStates
 
   emission.d                    = yDim;

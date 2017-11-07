@@ -2,69 +2,103 @@ function [estParams, seq, LL, iterTime] = em_mhmm(currentParams, seq, varargin)
 %
 % [estParams, seq, LL, iterTime] = em_mhmm(currentParams, seq, ...)
 %
-% Fits MHMM model parameters using expectation-maximization (EM) algorithm.
+% Fits MHMM model parameters using the Expectation Maximization (EM)
+%	algorithm
 %
-%   yDim: number of electrodes
+%   yDim: number of electrodes or channels
 %
 % INPUTS:
 %
-% currentParams - HMM model parameters at which EM algorithm is initialized
-%                   covType                         -- HMM covariance type
-%                   nStates (1 x 1)                 -- number of HMM states
-%                   pi (1 x nStates)                -- start probabilities
-%                   piPrior (1 x nStates)           -- pseudo counts for HMM
-%                                                      start probabilities
-%                   trans (nStates x nStates)       -- transition matrix
-%                   transPrior (nStates x nStates)  -- pseudo counts for HMM
-%                                                      transition matrix
-%                   d (yDim x nStates)              -- observation mean(s)
-%                   R (yDim x yDim x nStates)       -- observation noise
-%                                                      covariance(s)
-% seq           - training data structure, whose nth entry (corresponding to
-%                 the nth experimental trial) has fields
-%                   trialId      -- unique trial identifier
-%                   segId        -- segment identifier within trial
-%                   T (1 x 1)    -- number of timesteps in segment
-%                   y (yDim x T) -- ECoG data
+% currentParams - MHMM model parameters with which EM algorithm is
+%                 initialized in the fields (with the k-th entry of the
+%                 struct corresponding to the k-th component HMM while
+%                 faType, nMixComp, nStates, and notes are only specified
+%                 in the 1st entry)
+%                   nMixComp (1 x 1)                  -- number of
+%                                                        component HMMs
+%                   nStates (1 x 1)                   -- number of HMM
+%                                                        states
+%                   covType                           -- HMM component
+%                                                        covariance type:
+%                                                        'full' or
+%                                                        'diagonal'
+%                   sharedCov                         -- HMM components'
+%                                                        covariance
+%                                                        tied (true) or
+%                                                        untied (false)
+%                   pi (1 x nStates)                  -- start 
+%                                                        probabilities
+%                   piPrior (1 x nStates)             -- pseudo counts
+%                                                        for start
+%                                                        probabilities
+%                   trans (nStates x nStates)         -- transition matrix
+%                   transPrior (nStates x nStates)    -- pseudo counts for
+%                                                        transition matrix
+%                   Pi (1 x nMixComp)                 -- component HMFA
+%                                                        priors
+%                   d (yDim x nStates)                -- observation means
+%                   R (yDim x yDim x nStates (or 1))	-- covariances
+%
+% seq           - training data structure, whose n-th entry (corresponding
+%                 to the n-th experimental trial) has fields
+%                   trialId         -- unique trial identifier
+%                   segId           -- segment identifier within trial
+%                   trialType       -- trial type index (Optional)
+%                   fs              -- sampling frequency of ECoG data
+%                   T (1 x 1)       -- number of timesteps in segment
+%                   y (yDim x T)  	-- neural data
 %
 % OUTPUTS:
 %
-% estParams     - learned HMM model parameters returned by EM algorithm
+% estParams     - learned MHMM model parameters returned by EM algorithm
 %                   (same format as currentParams)
-% seq           - training data structure with new fields
-%                 state (1 x T)             -- state at each time point
-%                 mixComp (1 x 1)           -- most probable factor 
-%                                              MHMM mixture component
-%                 p (nStates x T)           -- state probabilities at each
-%                                              time point (please see
+% seq           - training data structure with fields
+%                   trialId                 -- unique trial identifier
+%                   segId                   -- segment identifier within 
+%                                              trial
+%                   trialType               -- trial type index (Optional)
+%                   fs                      -- sampling frequency of ECoG
+%                                              data
+%                   T (1 x 1)               -- number of timesteps in
+%                                              segment
+%                   y (yDim x T)            -- neural data
+%                   mixComp (1 x 1)        	-- most probable component HMM
+%                   state (1 x T x         	-- HMM state at each time point
+%                          nMixComp)           (from the Viterbi path)
+%                   p (nStates x T          -- hidden state probabilities
+%                      x nMixComp)             at each time point
+%                                              (please see
 %                                              EXACTINFERENCEWITHLL_MHMM
 %                                              for details)
-%                 P (1 x nMixComp)         	-- MHMM mixture component
-%                                              posterior probabilities
-% LL            - data log likelihood after each EM iteration
+%                   P (1 x nMixComp)      	-- component HMM posterior
+%                                              probabilities
+% LL            - data loglikelihood after each EM iteration
 % iterTime      - computation time for each EM iteration
-%               
+%
 % OPTIONAL ARGUMENTS:
 %
 % emMaxIters    - number of EM iterations to run (default: 500)
-% tolHMM        - stopping criterion for EM (default: 1e-2)
-% minVarFrac    - fraction of overall data variance for each observed dimension
-%                 to set as the private variance floor.  This is used to combat
-%                 Heywood cases, where ML parameter learning returns one or more
-%                 zero private variances. (default: 0.01)
+% tolMHMM     	- stopping criterion for EM (default: 1e-2)
+% minVarFrac    - fraction of overall data variance for each observed
+%                 dimension to set as the private variance floor.  This 
+%                 is used to combat Heywood cases, where ML parameter 
+%                 learning returns one or more zero private variances.
+%                 (default: 0.01)
 %                 (See Martin & McDonald, Psychometrika, Dec 1975.)
 % verbose       - logical that specifies whether to display status messages
 %                 (default: false)
-% freqLL        - data likelihood is computed every freqLL EM iterations. 
-%                 freqLL = 1 means that data likelihood is computed every 
-%                 iteration. (default: 1)
+% freqLL        - data loglikelihood is computed every freqLL EM 
+%                 iterations (default: 1)
+% outliers      - vector of indices of outlier trials in seq (default: [])
+%
+% dbg           - set to true for EM debugging mode (default: false)
 %
 % Code adapted from em.m by Byron Yu and John Cunningham.
 %
 % @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
   emMaxIters                        = 500;
-  tolHMM                            = 1e-2;
+  tolMHMM                            = 1e-2;
   verbose                           = false;
   freqLL                            = 1;
   outliers                          = [];
@@ -172,6 +206,7 @@ function [estParams, seq, LL, iterTime] = em_mhmm(currentParams, seq, varargin)
     % Verify that likelihood is growing monotonically
     if (LLi < LLold)
       if (dbg)
+        % For debugging
         fprintf(['Error: Data loglikelihood has decreased from %g',...
                  ' to %g.\nPlease check component Gaussians'' ',...
                  'positive-definiteness.\n'],...
@@ -191,7 +226,7 @@ function [estParams, seq, LL, iterTime] = em_mhmm(currentParams, seq, varargin)
               LLold, LLi);
       end
     elseif exist('LLbase','var') &&...
-           ((LLi-LLbase) < (1+tolHMM)*(LLold-LLbase))
+           ((LLi-LLbase) < (1+tolMHMM)*(LLold-LLbase))
       flag_converged                = true;
       break
     else

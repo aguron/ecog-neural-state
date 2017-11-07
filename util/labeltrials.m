@@ -3,36 +3,43 @@ function [seqInfo, labelInfo] = labeltrials(seq, datInfo)
 %
 % INPUTS:
 % 
-% datInfo   -   matrix with trial labels in rows ordered according to the
-%               lexicographic reordering of seq based on trialId field, OR
-%               struct with fields
-%               field,
-%                 trialId       -- unique trial identifier
-%                 trialType     -- index from 1 to the number of
-%                                  trial types inclusive
+% datInfo   - EITHER:
+%                    matrix with trial labels (positive integer scalars or
+%                    vectors) in rows ordered according to the
+%                    lexicographic reordering of seq based on the trialId
+%                    field
+%                 OR:
+%                    struct array with fields
+%                      trialId       -- unique trial identifier (all
+%                                       trialId values in seq must be in
+%                                       datInfo)
+%                      trialType     -- trial type index (must be
+%                                       specified)
 %   
-% seq       -   struct of trials without trialType field (not necessarily
-%               with the same ordering as datInfo)
+% seq       - struct of trials (without trialType field and not necessarily
+%             with the same ordering as datInfo)
 %
 % OUTPUTS:
 %
-% seqInfo   -   vector of trialType labels for seq trials, OR
-%               struct with seq trials and trialType field
+% seqInfo   - EITHER:
+%                    vector of trialType labels for seq trials
+%                 OR:
+%                    struct of seq trials with a new trialType field
 %
-% labelInfo	-   cell array of unique datInfo labels (only for datInfo
-%               matrix format)
-
+% labelInfo	-	cell array of unique datInfo labels (only for datInfo
+%            	matrix format)
+%
+% @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
   if isnumeric(datInfo)
     if any(~isint(datInfo(:))) || any(datInfo(:) <= 0)
       error('All entries in datInfo must be positive integers');
     end
 
-    nTrials                               = size(datInfo,1);
-    if (numel(seq) ~= nTrials)
-      error(['Number of output trajectories is not',...
-             ' equal to the number of input trials']);
-    end % if (numel(seq) ~= nTrials)
+    nLabels                               = size(datInfo,1);
+    if (numel(seq) ~= nLabels)
+      error('Number of trials is not equal to the number of labels');
+    end
 
     [~, idxList]                          = sort({seq(:).trialId});
     [~, idxList]                          = sort(idxList);
@@ -72,6 +79,6 @@ function [seqInfo, labelInfo] = labeltrials(seq, datInfo)
       labelInfo                          	= [];
     end % if (nargout == 2)
   else
-    error('datInfo must be a matrix or a struct');
+    error('datInfo must be a matrix or a struct array');
   end
 end

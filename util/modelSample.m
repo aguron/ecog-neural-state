@@ -1,6 +1,50 @@
 function seq = modelSample(model, T, nSeq, trialId)
-%MODELSAMPLE
-% 
+%MODELSAMPLE uses a specified generative model to generate sample trials
+%
+%   yDim: number of electrodes or channels
+%   xDim: latent neural state dimensionality
+%
+% INPUTS:
+%
+% model   - generative model in the fields
+%           	type                      -- generative model type ('gmm',
+%                                          'mfa', 'hmm', 'hmfa')
+%             fs (1 x 1)                -- sampling frequency of ECoG data
+%    	 EITHER:
+%             obj                       -- gmdistribution object (for model
+%                                          type 'gmm')
+%          OR:
+%             params                    -- MFA, HMM, or HMFA model
+%                                          parameters struct (for model
+%                                          types 'mfa', 'hmm', and 'hmfa')
+%             
+% T       - scalar or vector of trial lengths
+% nSeq    - number of sample trials to be generated
+%
+% OUTPUTS:
+%
+% seq     - data structure of trials with fields
+%           	trialId                  	-- unique trial identifier
+%             fs                        -- sampling frequency of ECoG data
+%            	T (1 x 1)                 -- number of timesteps in trial
+%             y (yDim x T)             	-- neural data
+%    	 EITHER:
+%           	mixComp (1 x T)           -- GMM/MFA mixture component at
+%                                          each time point
+%          OR:
+%             state (1 x T)           	-- HMM/HMFA state at each time
+%                                          point
+%
+%             x (xDim x T x             -- MFA/HMFA latent neural state at
+%                nMixComp (or nStates)) -- each time point for each mixture
+%                                          component or state
+%
+% OPTIONAL ARGUMENTS:
+%
+% trialId	- cell array of unique trial identifiers
+%           (default: {num2str(1),...,num2str(nSeq)})
+%
+% @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
   hmmModel.type                   = 'gauss';
   % hmmModel.modelType            = 'hmm';
@@ -71,6 +115,30 @@ function seq = modelSample(model, T, nSeq, trialId)
       % hmmModel.emission.nstates	= nMixComp;
 
       [y, state]                  = hmmSample(hmmModel, T, nSeq);
+    case 'hmm'
+      hmmModel.pi                 = model.params.pi;
+      hmmModel.A                  = model.params.trans;
+      nStates                     = model.params.nStates;
+      % hmmModel.nstates          = nStates;
+      
+      yDim                      	= size(model.params.d, 1);
+      hmmModel.emission.d        	= yDim;
+      % hmmModel.d               	= hmmModel.emission.d;
+      
+      hmmModel.emission.mu        = model.params.d;
+      if (model.params.sharedCov)
+        hmmModel.emission.Sigma  	= zeros([yDim yDim nStates]);
+        for j=1:nStates
+          
+        end % for j=1:nStates
+        hmmModel.emission.Sigma(:,:,j)...
+                                  = model.params.R;
+      else % if (~model.params.sharedCov)
+        hmmModel.emission.Sigma  	= model.params.R;
+      end
+      % hmmModel.emission.nstates	= nStates;
+      
+      [y, state]                  = hmmSample(hmmModel, T, nSeq);
     case 'hmfa'
       hmmModel.pi                 = model.params.pi;
       hmmModel.A                  = model.params.trans;
@@ -127,6 +195,8 @@ function seq = modelSample(model, T, nSeq, trialId)
       [~, temp]                   =...
         em_mfa(model.params, seq, 'emMaxIters', 0);
       seq                       	= addfield(seq, 'x', {temp.x});
+    case 'hmm'
+    
     case 'hmfa'
       temp                        =...
         exactInferenceWithLL_hmfa(seq, model.params, 'getSeq', true);

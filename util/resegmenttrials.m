@@ -4,7 +4,7 @@ function [seqOut, cutTrialGuess] = resegmenttrials(seqIn, varargin)
 %
 % Extracts trial segments that are all of the same length.  Uses
 % overlapping segments if trial length is not integer multiple
-% of segment length.  Ignores trials with length shorter than 
+% of segment length. Ignores trials with length shorter than 
 % one segment length.
 %
 % INPUTS:
@@ -12,7 +12,9 @@ function [seqOut, cutTrialGuess] = resegmenttrials(seqIn, varargin)
 % seqIn         - data structure, whose nth entry (corresponding to
 %                 the nth experimental trial) has fields
 %                   trialId       -- unique trial identifier
-%                   T (1 x 1)     -- number of timesteps in trial
+%                   trialType     -- trial type index (Optional)
+%                   fs            -- sampling frequency of ECoG data
+%                   T (1 x 1)     -- number of timesteps
 %                   y (yDim x T)  -- neural data
 %
 % OUTPUTS:
@@ -22,26 +24,32 @@ function [seqOut, cutTrialGuess] = resegmenttrials(seqIn, varargin)
 %                   trialId       -- identifier of trial from which 
 %                                    segment was taken
 %                   segId         -- segment identifier within trial
+%                   trialType     -- trial type index (Optional)
+%                   fs            -- sampling frequency of ECoG data
 %                   T (1 x 1)     -- number of timesteps in segment
-%                   y (yDim x     -- neural data
-%                      min(T,segLength))
-% cutTrialGuess	- data structure
-%                   state         -- stateGuess for resegmented trials
-%                   mixComp       -- mixCompGuess for resegmented trials
+%                   y (yDim x T)  -- neural data
+% cutTrialGuess	- data structure has fields
+%                   state         -- 'stateGuess' for resegmented trials
+%                   mixComp       -- 'mixCompGuess' for resegmented trials
 %
 % OPTIONAL ARGUMENTS:
 %
+% method        - method for extracting neural trajectories:
+%                 'mhmfa', 'mhmm', 'hmfa' (default), 'mfa', 'hmm', 'gmm'
 % segLength     - length of segments to extract, in number of timesteps.
 %                 If infinite, entire trials are extracted, i.e., no 
 %                 resegmenting. (default: Inf)
-% stateGuess    - initial state guesses for training data
-% mixCompGuess	- initial mixture component guesses for training data
+% stateGuess  	- cell array of initial state guesses for time points
+%                 of trials for MHMFA/MHMM/HMFA/HMM
+% mixCompGuess 	- initial mixture component guesses for trials of
+%                 MHMFA/MHMM (vector) or time points of trials for
+%                 MFA/GMM (cell array)
 %
 % Code adapted from cutTrials.m by Byron Yu.
 %
 % @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
-  method                          = '';
+  method                          = 'hmfa';
   segLength                       = Inf;
   stateGuess                      = [];
   mixCompGuess                    = [];
@@ -53,6 +61,10 @@ function [seqOut, cutTrialGuess] = resegmenttrials(seqIn, varargin)
      case {'mhmfa', 'mhmm'}
        cutTrialGuess.state        = stateGuess;
        cutTrialGuess.mixComp      = mixCompGuess;
+     case {'hmfa', 'hmm'}
+       cutTrialGuess.state        = stateGuess;
+     case {'mfa', 'gmm'}
+       cutTrialGuess.mixComp      = mixCompGuess;
      otherwise
        error('Invalid method specification');
     end % switch(method)
@@ -63,11 +75,23 @@ function [seqOut, cutTrialGuess] = resegmenttrials(seqIn, varargin)
   switch(method)
    case {'mhmfa', 'mhmm'}
      if iscell(stateGuess)
-        cutTrialGuess.state       = {};
-     elseif isnumeric(stateGuess)
+       cutTrialGuess.state        = {};
+     elseif isnumeric(stateGuess) % && isempty(stateGuess)
        cutTrialGuess.state        = [];
      end
      cutTrialGuess.mixComp        = [];
+   case {'hmfa', 'hmm'}
+     if iscell(stateGuess)
+       cutTrialGuess.state        = {};
+     elseif isnumeric(stateGuess) % && isempty(stateGuess)
+       cutTrialGuess.state        = [];
+     end
+   case {'mfa', 'gmm'}
+     if iscell(mixCompGuess)
+       cutTrialGuess.mixComp     	= {};
+     elseif isnumeric(mixCompGuess) % && isempty(mixCompGuess)
+       cutTrialGuess.mixComp      = [];
+     end
    otherwise
      error('Invalid method specification');
   end % switch(method)
@@ -114,6 +138,18 @@ function [seqOut, cutTrialGuess] = resegmenttrials(seqIn, varargin)
          if ~isempty(mixCompGuess)
            cutTrialGuess.mixComp	=...
             [cutTrialGuess.mixComp, mixCompGuess(n)];
+         end % if ~isempty(mixCompGuess)
+       case {'hmfa', 'hmm'}
+         if ~isempty(stateGuess)
+           cutTrialGuess.state    =...
+            [cutTrialGuess.state,...
+             stateGuess{n}(:,tStart:(tStart+segLength-1))];
+         end % if ~isempty(stateGuess)
+       case {'mfa', 'gmm'}
+         if ~isempty(mixCompGuess)
+           cutTrialGuess.mixComp  =...
+            [cutTrialGuess.mixComp,...
+             mixCompGuess{n}(:,tStart:(tStart+segLength-1))];
          end % if ~isempty(mixCompGuess)
        otherwise
          error('Invalid method specification');

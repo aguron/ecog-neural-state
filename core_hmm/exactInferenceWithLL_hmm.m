@@ -2,49 +2,60 @@ function [seq, ess, LL] = exactInferenceWithLL_hmm(seq, params, varargin)
 %
 % [seq, ess, LL] = exactInferenceWithLL_hmm(seq, params,...)
 %
-% Extracts latent trajectories given HMM model parameters.
+% Infers latent variables given HMM model parameters
 %
 % INPUTS:
 %
-% seq         - data structure, whose nth entry (corresponding to the nth
+% seq         - data structure, whose n-th entry (corresponding to the n-th
 %               experimental trial) has fields
-%                 y (yDim x T) -- neural data
-%                 T (1 x 1)    -- number of timesteps
-% params      - HMM model parameters
-%  
+%               	trialId         -- unique trial identifier
+%                	segId           -- segment identifier within trial
+%                	trialType       -- trial type index (Optional)
+%                	fs              -- sampling frequency of ECoG data
+%                	T (1 x 1)       -- number of timesteps in segment
+%                	y (yDim x T)  	-- neural data
+% params      - HMM model parameters (same format as currentParams
+%               in EM_HMM)
+%
 % OUTPUTS:
 %
-% seq         - training data structure with new fields
-%                 state (1 x T)             -- hidden Markov state
-%                                              at each time point
-%                 p (nStates x T)           -- defined RECURSIVELY at 
-%                                              time t (1 <= t <= T) as 
-%                                              the probability of the 
-%                                              most probable sequence
-%                                              of length t-1 for each
-%                                              hidden Markov state
-%                                              at time t, given the
-%                                              observations from 1 to t
+% seq        	- data structure with fields
+%                 trialId                 -- unique trial identifier
+%                 segId                   -- segment identifier within 
+%                                            trial
+%                 trialType               -- trial type index (Optional)
+%                 fs                      -- sampling frequency of ECoG
+%                                            data
+%                 T (1 x 1)               -- number of timesteps in
+%                                            segment
+%                 y (yDim x T)            -- neural data
+%                 state (1 x T)           -- HMM state at each time
+%                                            point (from the Viterbi path)
+%                 p (nStates x T)       	-- defined RECURSIVELY at 
+%                                            time t (1 <= t <= T) as 
+%                                            the probability of the 
+%                                            most probable sequence of 
+%                                            length t-1 for each hidden
+%                                            state at time t, given the
+%                                            observations from 1 to t
 % ess         - expected sufficient statistics structure with fields
-%                 startCounts
-%                 transCounts
-%                 weights
-%                 wsum
-%                 ybar
-% LL          - data log likelihood
+%                 startCounts             -- for start probabilities
+%                 transCounts             -- for transition matrix
+%                 weights                 -- smoothed marginals
+%                 wsum                    -- sum of smoothed marginals over
+%                                            time
+%                 ybar                    -- observation means estimate
+% LL          - data loglikelihood
 %
 % OPTIONAL ARGUMENTS:
 %
-% condNumLim  - upper limit of condition number of covariance
-%               for each hidden Markov state (default: 1e6)
 % getLL       - logical that specifies whether to compute
-%               data log likelihood (default: false)
+%               data loglikelihood (default: false)
 % getSeq      - logical that specifies whether to compute
-%               seq fields (default: false)
+%               new seq fields in output (default: false)
 %
 % @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
-  condNumLim                    = 1e6;
   getLL                         = false;
   getSeq                        = false;
   
@@ -79,19 +90,10 @@ function [seq, ess, LL] = exactInferenceWithLL_hmm(seq, params, varargin)
 
   emission.mu                   = d;
   emission.Sigma                = R;
-  
   if (params.sharedCov)
    emission.Sigma               = repmat(emission.Sigma,[1 1 nStates]);
   end % if (params.sharedCov)
 
-  for j=1:max(1,nStates*~params.sharedCov)
-    condNum                     = cond(emission.Sigma(:,:,j));
-    if (condNum > condNumLim)
-      error(['Covariance matrix of Gaussian distribution (state %d) ',...
-             'has a large condition number (%d)'], j, condNum);
-    end % if (condNum > condNumLim)
-  end % for j=1:max(1,nStates*~params.sharedCov)
-  
   emission.d                    = yDim;
   emission.cpdType              = 'condGauss';
   emission.nstates              = nStates;

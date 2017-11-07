@@ -1,10 +1,46 @@
-function newFileFlag = modelconverter(oldModel, newModel, varargin)
-%MODELCONVERTER
+function newModelFlag = modelconverter(oldModel, newModel, varargin)
+%MODELCONVERTER creates an HMM/HMFA (spatiotemporal) model file from a
+% GMM/MFA (spatial) model file
 % 
+% INPUTS:
+%
+% oldModel      - struct with GMM/MFA model file information with fields
+%                   dir               -- model directory information
+%                   runIdx            -- model directory information
+%                                        (please see RUNIDX in NEURALSTATE)
+%                   binWidth          -- ECoG window width in seconds
+%                   method            -- method for model fitting,
+%                                        inference, and/or prediction
+%                   numFolds          -- number of cross-validation folds
+%                   nMixComp          -- number of mixture components
+%  EITHER (for GMM):
+%                   covType           -- covariance type: 'full'
+%                                        or 'diagonal'
+%                   sharedCov         -- covariance tied (true)
+%                                        or untied (false)
+%      OR (for MFA):
+%                   xDim              -- state dimensionality
+%                   faType            -- factor analyzers specification
+% newModel     	- struct with HMM/HMFA model file information with fields
+%                   dir               -- model directory information
+%                   method            -- method for model fitting,
+%                                        inference, and/or prediction
+%
+% OUTPUTS:
+%
+% newModelFlag	- true only if a new HMM/HMFA model file is created
+%
+% OPTIONAL ARGUMENTS:
+%
+% overwrite     - true if current HMM/HMFA model file should be
+%                 overwritten (default: false)
+%
+% @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
+
   overwrite                         = false;
   assignopts(who, varargin);
   
-  newFileFlag                       = true;
+  newModelFlag                     	= true;
 
   oldDir                            =...
     sprintf('%s/mat_results/run%03d/binWidth_%g',...
@@ -54,7 +90,7 @@ function newFileFlag = modelconverter(oldModel, newModel, varargin)
   end % switch(newModel.method)
   
   if exist([newfname, '.mat'],'file') && (~overwrite)
-    newFileFlag                     = false;
+    newModelFlag                     = false;
     return
   end % if exist([newfname, '.mat'],'file') && (~overwrite)
   

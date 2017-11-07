@@ -1,54 +1,76 @@
 function hmfaEngine(seqTrain, seqTest, fname, varargin)
 %
-% hmfaEngine(seqTrain, seqTest, fname, ...) 
+% hmfaEngine(seqTrain, seqTest, fname, ...)
 %
-% Extract neural trajectories using HMFA.
+% Model fitting and inference with HMFA
 %
-%   yDim: number of electrodes
+%   yDim: number of electrodes or channels
 %
 % INPUTS:
 %
-% seqTrain    - training data structure, whose nth entry (corresponding
-%               to the nth experimental trial) has fields
-%                 trialId (1 x 1)         -- unique trial identifier
-%                 y (# electrodes x T)    -- neural data
-%                 T (1 x 1)               -- number of timesteps
+% seqTrain    - training data structure, whose n-th entry (corresponding
+%               to the n-th experimental trial) has fields
+%                 trialId           -- unique trial identifier
+%                 trialType (1 x 1)	-- trial type index (Optional)
+%                 fs (1 x 1)       	-- sampling frequency of ECoG data
+%                 T (1 x 1)         -- number of timesteps
+%                 y (yDim x T)      -- neural data
 % seqTest     - test data structure (same format as seqTrain)
-% fname       - filename of where results are saved
+% fname       - model filename
 %
 % OPTIONAL ARGUMENTS:
 %
-% xDim        - state dimensionality (default: 3)
-% nStates     - number of HMFA states (default: 3)
-% faType      - HMFA factor analyzer(s) (with tied (0) or untied (1)
-%               mean, factor loading matrix, and covariance parameters)
-%               (default: [1 1 1])
-% binWidth    - ECoG window width in seconds (default: 0.2)
-% kernSD      - Gaussian smoothing kernel width in seconds (default: 0)
-
-% d (yDim x nStates)              - observation mean(s)
-% C (yDim x xDim x nStates)       - factor loadings (s)
-% R (yDim x yDim x                - observation noise covariance(s)
-%    nStates (or 1))
-% pi0 (1 x nStates)               - initial HMFA start probabilities
-% piPrior (1 x nStates)           - pseudo counts for HMFA start
-%                                   probabilities
-% trans0 (nStates x nStates)      - initial HMFA transition probabilities
-% transPrior (nStates x nStates)  - pseudo counts for HMFA transition
-%                                   probabilities
-% stateGuess                      - initial state guesses for time points
-%                                 	for training data
-
-% prediction  - specifies whether leave-channel-out prediction
-%               should be carried out (default: false)
+% xDim                              - state dimensionality (default: 3)
+% nStates                           - number of Markov (HMFA) states
+%                                     (default: 3)
+% faType                            - factor analyzers specification
+%                                     (with tied (0) or untied (1) mean,
+%                                     factor loading matrix, and covariance
+%                                     parameters) (default: [1 1 1])
+%
+% binWidth                          - ECoG window width in seconds
+%                                     (default: 0.2)
+% kernSD                            - Gaussian smoothing kernel width in
+%                                    	seconds. 0 corresponds to no
+%                                     smoothing (default: 0)
+%
+% Replicates                       ]  parameters for
+% Regularize                       ]- MATLAB function
+% Options                          ]  GMDISTRIBUTION.FIT
+%
+% d (yDim x nStates)                - HMFA observation means
+% C (yDim x xDim x nStates (or 1))	- HMFA factor loadings
+% R (yDim x yDim x nStates (or 1))	- HMFA observation noise covariances
+%
+% pi0 (1 x nStates)               	- HMFA initial start probabilities
+% piPrior (1 x nStates)           	- pseudo counts for HMFA start 
+%                                     probabilities
+% trans0 (nStates x nStates)        - HMFA initial transition probabilities
+% transPrior (nStates x nStates)    - pseudo counts for HMFA transition
+%                                     probabilities
+%
+% stateGuess                      	- cell array of initial state guesses
+%                                     for time points of trials for
+%                                     training data
+%
+% learning                          - indicates whether model fitting
+%                                     should be carried out (default: true)
+% inference                       	- indicates whether latent variables
+%                                     should be inferred for seqTest
+%                                     (default: true)
+% prediction                        - specifies whether
+%                                     leave-one-channel-out prediction
+%                                    	should be carried out
+%                                     (default: false)
 %
 % @ 2015 Akinyinka Omigbodun    aomigbod@ucsd.edu
-  
+
   xDim                                      = 3;
   nStates                                   = 3;
   faType                                    = [1 1 1];
-  binWidth                                  = 0.2;  % in sec
-  kernSD                                    = 0;    % in sec
+
+  binWidth                                  = 0.2;
+  kernSD                                    = 0;
 
   Replicates                                = 1;
   Regularize                                = 0;
@@ -57,10 +79,12 @@ function hmfaEngine(seqTrain, seqTest, fname, varargin)
   d                                         = [];
   C                                         = [];
   R                                         = [];
+
   pi0                                       = [];
   piPrior                                   = [];
   trans0                                    = [];
   transPrior                                = [];
+
   stateGuess                                = [];
 
   learning                                  = true;
@@ -78,7 +102,7 @@ function hmfaEngine(seqTrain, seqTest, fname, varargin)
     if ~isequal(faType,[1 1 1]) &&...
        ~isequal(faType,[1 1 0]) &&...
        ~isequal(faType,[1 0 0])
-     fprintf('Does not support faType = [%d %d %d]\n',faType);
+      fprintf('Does not support faType = [%d %d %d]\n', faType);
     end
 
     if (kernSD)
@@ -103,17 +127,23 @@ function hmfaEngine(seqTrain, seqTest, fname, varargin)
       end % for n=1:length(seqTest)
     end % if (kernSD)
 
-    % For compute efficiency, train on equal-length segments of trials
-    seqTrainCut                             =...
-      cutTrials(seqTrain, extraOpts{:});
+    % Resegment trials for training
+    [seqTrainCut, resegTrlGuess]           	=...
+      resegmenttrials(seqTrain,...
+                      'method', 'hmfa',...
+                      'stateGuess', stateGuess,...
+                      extraOpts{:});
     if isempty(seqTrain)
-      fprintf('No segments extracted for training.\n');
+      fprintf('No segments for training.\n');
     elseif isempty(seqTrainCut)
       fprintf(['WARNING: no segments extracted for training.',...
                ' Defaulting to segLength=Inf.\n']);
-      seqTrainCut                           =...
-        cutTrials(seqTrain, 'segLength', Inf);
-    end % if isempty(seqTrainCut)
+      [seqTrainCut, resegTrlGuess]         	=...
+        resegmenttrials(seqTrain,...
+                        'method', 'hmfa',...
+                        'stateGuess', stateGuess,...
+                        'segLength', Inf);
+    end
 
     yAll                                    = [seqTrainCut.y];
     if ~isempty(yAll)
@@ -134,10 +164,10 @@ function hmfaEngine(seqTrain, seqTest, fname, varargin)
         {'Replicates', Replicates,...
          'CovType', 'diagonal', 'SharedCov', ~faType(3),...
          'Regularize', Regularize, 'Options', Options};
-      if ~isempty(stateGuess)
+      if ~isempty(resegTrlGuess.state)
         args                                =...
-          [args, 'Start', cell2mat(stateGuess)];
-      end % if ~isempty(stateGuess)
+          [args, 'Start', cell2mat(resegTrlGuess.state)];
+      end % if ~isempty(resegTrlGuess.state)
       obj                                   =...
         gmdistribution.fit(yAll', nStates, args{:});
 
@@ -171,7 +201,6 @@ function hmfaEngine(seqTrain, seqTest, fname, varargin)
       % Initialize state model parameters
       % ==================================
       startParams.nStates                   = estParamsMFA.nMixComp;
-      startParams.faType                    = estParamsMFA.faType;
       startParams                           =...
         renamefield(startParams, {'ST', 'TR'}, {'pi', 'trans'});
       startParams                           = rmfield(startParams,'E');
@@ -190,7 +219,6 @@ function hmfaEngine(seqTrain, seqTest, fname, varargin)
       % Initialize state model parameters
       % ==================================
       startParams.nStates                   = nStates;
-      startParams.faType                    = faType;
       startParams.pi                        = pi0;
       startParams.piPrior                   = piPrior;
       startParams.trans                     = trans0;
@@ -209,6 +237,7 @@ function hmfaEngine(seqTrain, seqTest, fname, varargin)
 
     % Define parameter constraints
     startParams.notes.RforceDiagonal        = true;
+    startParams.faType                      = faType;
 
     if ~isempty(seqTrainCut)
       % =====================
@@ -245,9 +274,9 @@ function hmfaEngine(seqTrain, seqTest, fname, varargin)
   end
 
   if ~isempty(seqTest) % check if there are any test trials
-    % =========================================
-    % Leave-channel-out prediction on test data
-    % =========================================
+    % =============================================
+    % Leave-one-channel-out prediction on test data
+    % =============================================
     if prediction && estParams.notes.RforceDiagonal
       seqTest                               =...
         predict_hmfa_fast(seqTest, estParams, varargin{:});

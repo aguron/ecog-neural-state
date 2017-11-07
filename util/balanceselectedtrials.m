@@ -1,10 +1,25 @@
 function selectedTrials = balanceselectedtrials(labels, nTrials)
-%BALANCESELECTEDTRIALS
-  
+%BALANCESELECTEDTRIALS Prepares an indicator vector for selected trials
+%   while attempting to equalize the numbers of the trial types in the
+%   selection
+%
+% INPUTS:
+%
+% labels          - numeric vector of trial type indices
+%
+% nTrials         - number of trials to be selected
+%
+% OUTPUTS:
+%
+% selectedTrials	- an indicator vector for selected trials. Vector entry
+%                   is true if a trial is selected, and false otherwise
+%
+% @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
+
   if (nTrials > numel(labels))
     error('nTrials must be less than or equal to numel(labels)');
-  end % if (nTrials >= numel(labels))
-  
+  end
+
   if (nTrials == numel(labels))
     selectedTrials  = true(size(labels));
     return

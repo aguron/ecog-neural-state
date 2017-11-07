@@ -2,36 +2,64 @@ function seq = predict_mfa_fast(seq, params, varargin)
 %
 % seq = predict_mfa_fast(seq, params, ...)
 %
-% Performs leave-electrode-out prediction for MFA (assumes R is
-% diagonal)
+% Performs leave-one-channel-out prediction for MFA, assuming the
+% observation noise covariance(s) is (are) diagonal
+%
+%   yDim: number of electrodes or channels
+%   xDim: latent neural state dimensionality
 %
 % INPUTS:
 %
-% seq         - test data structure
-% params      - MFA model parameters fit to training data
+% seq         - data structure (same format as seqTrain in MFAENGINE)
+% params      - MFA model parameters (same format as currentParams
+%               in EM_MFA)
 %
 % OUTPUTS:
 %
-% seq      	- test data structure with new field
-%               ycs (yDim x T)
+% seq        	- data structure with fields
+%                 trialId                 -- unique trial identifier
+%                 segId                   -- segment identifier within 
+%                                            trial
+%                 trialType               -- trial type index (Optional)
+%                 fs                      -- sampling frequency of ECoG
+%                                            data
+%                 T (1 x 1)               -- number of timesteps in
+%                                            segment
+%                 y (yDim x T)            -- neural data
+%                 mixComp (1 x T)        	-- most probable mixture
+%                                            component at each time point
+%                 x (xDim x T x nMixComp)	-- latent neural state at each
+%                                            time point for each mixture
+%                                            component
+%                 p (nMixComp x T)       	-- probability of each mixture
+%                                            component at each time point
+%                 ycs (yDim x T)          -- neural data prediction
+%
+% OPTIONAL ARGUMENTS:
+%
+% reconstruct - if true, no channel is 'left out' in estimating the
+%               most probable mixture component path in prediction
+%               (default: false)
 %
 % Code adapted from cosmoother_gpfa_viaOrth_fast.m by Byron Yu
 % and John Cunningham.
 %
 % @ 2016 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
+  reconstruct                       = false;
+  
+  assignopts(who, varargin);
+
   if ~params.notes.RforceDiagonal
-    fprintf('ERROR: R must be diagonal to use predict_mfa_fast.\n');
+    fprintf('ERROR: Observation noise covariance(s) must be diagonal.\n');
     return
-  end % if ~params.notes.RforceDiagonal
+  end
 
   d                                 = params.d;
   C                                 = params.C;
   R                                 = params.R;
 
   Pi                                = params.Pi;
-
-  notes.RforceDiagonal              = params.notes.RforceDiagonal;
 
   [yDim, xDim, ~]                   = size(C);
   nMixComp                          = params.nMixComp;
@@ -75,29 +103,43 @@ function seq = predict_mfa_fast(seq, params, varargin)
     ycs                             = nan(yDim, T);
 
     Yn                              = seq(n).y;
-    parfor i=1:yDim
-      % In computing the most probable component for each time point, 
-      % eliminate the contribution of electrode i
-      mi                            = [1:(i-1) (i+1):yDim];
 
-      [~, temp2]                    =...
+    temp                            = [];
+    if (reconstruct)
+      % In computing the most probable path, use all channels
+      [~, temp]                     =...
         em_mfa(struct('nMixComp',nMixComp, 'faType',faType,...
-                      'Pi',Pi, 'd',d(mi,:),...
-                      'C',C(mi,:,:), 'R',R(mi,mi,:)),...
-                      struct('y',Yn(mi,:), 'T',T),...
-                      'emMaxIters', 0);
-      mixComp                       = temp2.mixComp;
+                      'Pi',Pi, 'd',d, 'C',C, 'R',R),...
+               struct('y',Yn, 'T',T),...
+               'emMaxIters', 0);
+    end % if (reconstruct)
+    parfor i=1:yDim
+      if (reconstruct)
+        mixComp                   	= temp.mixComp;
+      else % if (~reconstruct)
+        % In computing the most probable component for each time point, 
+        % eliminate the contribution of channel i
+        mi                        	= [1:(i-1) (i+1):yDim];
+
+        [~, temp2]                 	=...
+          em_mfa(struct('nMixComp',nMixComp, 'faType',faType,...
+                        'Pi',Pi, 'd',d(mi,:),...
+                        'C',C(mi,:,:), 'R',R(mi,mi,:)),...
+                 struct('y',Yn(mi,:), 'T',T),...
+              	'emMaxIters', 0);
+        mixComp                    	= temp2.mixComp;
+      end
 
       if any(faType(2:3))
-        temp                       	= mat2cell(B(:,:,mixComp),...
+        temp3                     	= mat2cell(B(:,:,mixComp),...
                                                xDim, xDim, ones(1,T));
       else % if ~any(faType(2:3))
-        temp                       	= cell(1,T);
-        [temp{:}]                  	= deal(B);
+        temp3                     	= cell(1,T);
+        [temp3{:}]                 	= deal(B);
       end
 
       % Taking advantage of the block diagonal matrix structure
-      invM                          = blkdiag(temp{:});
+      invM                          = blkdiag(temp3{:});
 
       if faType(1)
                                     % yDim x T
@@ -139,9 +181,9 @@ function seq = predict_mfa_fast(seq, params, varargin)
         if any(faType(2:3))
           s                         = mixComp(t);
           ci_invM(t,:)              = ci(:,s)' * invM(bIdx,:);
-        else
+        else % if ~any(faType(2:3))
           ci_invM(t,:)              = ci' * invM(bIdx,:);
-        end % if any(faType(2:3))
+        end
       end % for t=1:T
 
       for t=1:T
@@ -204,15 +246,15 @@ function seq = predict_mfa_fast(seq, params, varargin)
       xsmMat                        = reshape(xsmMat, xDim, T);
 
       if any(faType(1:2))
-        temp3                       = nan(1,T);
+        temp4                       = nan(1,T);
         for t=1:T
           s                         = mixComp(t);
           sd                        = s*faType(1) + (1 - faType(1));
           sC                        = s*faType(2) + (1 - faType(2));
           
-          temp3(t)                  = C(i,:,sC) * xsmMat(:,t) + d(i,sd);
+          temp4(t)                  = C(i,:,sC) * xsmMat(:,t) + d(i,sd);
         end % for t=1:T
-        ycs(i,:)                    = temp3;
+        ycs(i,:)                    = temp4;
       else % if ~any(faType(1:2))
         ycs(i,:)                    = C(i,:) * xsmMat + d(i);
       end

@@ -6,37 +6,43 @@ function seq = getSeqRMS(dat, binWidth)
 %
 % INPUTS:
 %
-% dat         - structure whose nth entry (corresponding to the nth experimental
-%               trial) has fields
-%                 trialId   -- unique trial identifier
-%                 trialType -- unique trial identifier
-%                 ECoG      -- matrix of voltage activity across all
-%                              electrodes. Each row corresponds to an
-%                              electrode. Each column corresponds to a (1/fs)
-%                              sec timestep.
-%                 fs        -- sampling frequency of ECoG data
+% dat         - structure whose n-th entry (corresponding to the n-th
+%               experimental trial) has fields
+%                 trialId       -- unique trial identifier
+%                 trialType     -- trial type index (OPTIONAL)
+%                 fs            -- sampling frequency of ECoG data
+%                 ECoG          -- matrix of voltage activity across all
+%                                  electrodes. Each row corresponds to an
+%                                  electrode. Each column corresponds to a
+%                                  (1/fs) sec timestep.
 % binWidth    - ECoG window width in sec
 %
 % OUTPUTS:
 %
-% seq         - data structure, whose nth entry (corresponding to
-%               the nth experimental trial) has fields
-%                 trialId      -- unique trial identifier
-%                 trialType    -- unique trial identifier
-%                 fs           -- sampling frequency of ECoG data
-%                 T (1 x 1)    -- number of timesteps
-%                 y (yDim x T) -- neural data
+% seq         - data structure, whose n-th entry (corresponding to
+%               the n-th experimental trial) has fields
+%                 trialId       -- unique trial identifier
+%                 trialType     -- trial type index (OPTIONAL)
+%                 fs            -- sampling frequency of ECoG data
+%                 T (1 x 1)     -- number of timesteps
+%                 y (yDim x T)  -- neural data
 %
-% @ 2009 Byron Yu -- byronyu@stanford.edu
+% Code adapted from getSeq.m by Byron Yu.
+%
+% @ 2015 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
   rms                   = @(x,d) sqrt(mean(x.^2,d));
-  
+
   if isfield(dat, 'T')
     seq                 = dat;
     return
-  else
-    seq               	= selectfield(dat, {'trialId', 'trialType', 'fs'});
-  end % if isfield(dat, 'T')
+  else % if ~isfield(dat, 'T')
+    if isfield(dat, 'trialType')
+      seq             	= selectfield(dat, {'trialId', 'trialType', 'fs'});
+    else % if ~isfield(dat, 'trialType')
+      seq             	= selectfield(dat, {'trialId', 'fs'});
+    end % if isfield(dat, 'trialType')
+  end
 
   for n=1:numel(dat)
     yDim                = size(dat(n).ECoG, 1);
@@ -46,11 +52,9 @@ function seq = getSeqRMS(dat, binWidth)
 
     seq(n).T            = T;
     
-    if (binWidth < seq(n).fs^-1)
-      seq(n).y          = dat(n).ECoG;
-    elseif (binWidth == seq(n).fs^-1)
+    if (binWidth <= seq(n).fs^-1)
       seq(n).y          = abs(dat(n).ECoG);
-    else
+    else % if (binWidth > seq(n).fs^-1)
       iStart            = 1;
       iEnd              = nSamplesStep;
       seq(n).y          = nan(yDim, T);

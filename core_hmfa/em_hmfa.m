@@ -2,64 +2,94 @@ function [estParams, seq, LL, iterTime] = em_hmfa(currentParams, seq, varargin)
 %
 % [estParams, seq, LL, iterTime] = em_hmfa(currentParams, seq, ...)
 %
-% Fits HMFA model parameters using expectation-maximization (EM) algorithm.
+% Fits HMFA model parameters using the Alternating Expectation Conditional
+% Maximization (AECM) algorithm
 %
-%   yDim: number of electrodes
-%   xDim: state dimensionality
+%   yDim: number of electrodes or channels
+%   xDim: latent neural state dimensionality
 %
 % INPUTS:
 %
-% currentParams - HMFA model parameters at which EM algorithm is initialized
-%                   faType (1 x 3)                  -- HMFA factor analyzer(s)
-%                   nStates (1 x 1)                 -- number of HMFA states
-%                   pi (1 x nStates)                -- start probabilities
-%                   piPrior (1 x nStates)           -- pseudo counts for HMM
-%                                                      start probabilities
-%                   trans (nStates x nStates)       -- transition matrix
-%                   transPrior (nStates x nStates)  -- pseudo counts for HMM
-%                                                      transition matrix
-%                   d (yDim x nStates)              -- observation mean(s)
-%                   C (yDim x xDim x nStates)       -- factor loadings (s)
-%                   R (yDim x yDim x nStates)       -- observation noise
-%                                                      covariance(s)
-% seq           - training data structure, whose nth entry (corresponding to
-%                 the nth experimental trial) has fields
-%                   trialId      -- unique trial identifier
-%                   segId        -- segment identifier within trial
-%                   T (1 x 1)    -- number of timesteps in segment
-%                   y (yDim x T) -- ECoG data
+% currentParams - HMFA model parameters with which AECM algorithm is
+%                 initialized in the fields
+%                   faType (1 x 3)                    -- HMFA factor
+%                                                        analyzers
+%                                                        specification
+%                   nStates (1 x 1)                   -- number of HMFA
+%                                                        states
+%                   pi (1 x nStates)                  -- start 
+%                                                        probabilities
+%                   piPrior (1 x nStates)             -- pseudo counts
+%                                                        for start
+%                                                        probabilities
+%                   trans (nStates x nStates)         -- transition matrix
+%                   transPrior (nStates x nStates)    -- pseudo counts for
+%                                                        transition matrix
+%                   d (yDim x nStates)                -- observation means
+%                   C (yDim x xDim x nStates (or 1))	-- factor loadings
+%                   R (yDim x yDim x nStates (or 1))	-- observation noise
+%                                                        covariance(s)
+%                   notes                             -- has a field
+%                                                        RforceDiagonal
+%                                                        which is set to
+%                                                        true to indicate
+%                                                        that the
+%                                                        observation
+%                                                        covariance(s)
+%                                                        is (are) diagonal
+% seq           - training data structure, whose n-th entry (corresponding
+%                 to the n-th experimental trial) has fields
+%                   trialId         -- unique trial identifier
+%                   segId           -- segment identifier within trial
+%                   trialType       -- trial type index (Optional)
+%                   fs              -- sampling frequency of ECoG data
+%                   T (1 x 1)       -- number of timesteps in segment
+%                   y (yDim x T)  	-- neural data
 %
 % OUTPUTS:
 %
-% estParams     - learned HMFA model parameters returned by EM algorithm
+% estParams     - learned HMFA model parameters returned by AECM algorithm
 %                   (same format as currentParams)
-% seq           - training data structure with new fields
-%                   state (1 x T)           -- factor analyzer state 
-%                                              at each time point
-%                   x (xDim x T x nStates)  -- latent neural state
-%                                              at each time point
-%                   p (nStates x T)         -- factor analyzer state
+% seq           - training data structure with fields
+%                   trialId                 -- unique trial identifier
+%                   segId                   -- segment identifier within 
+%                                              trial
+%                   trialType               -- trial type index (Optional)
+%                   fs                      -- sampling frequency of ECoG
+%                                              data
+%                   T (1 x 1)               -- number of timesteps in
+%                                              segment
+%                   y (yDim x T)            -- neural data
+%                   state (1 x T)           -- HMFA state at each time
+%                                              point (from the Viterbi
+%                                              path)
+%                   x (xDim x T x nStates)	-- latent neural state at each
+%                                              time point for each HMFA
+%                                              state
+%                   p (nStates x T)       	-- factor analyzer state
 %                                              probabilities at each
 %                                              time point (please see
 %                                              EXACTINFERENCEWITHLL_HMFA
 %                                              for details)
-% LL            - data log likelihood after each EM iteration
-% iterTime      - computation time for each EM iteration
-%               
+% LL            - data loglikelihood after each AECM iteration
+% iterTime      - computation time for each AECM iteration
+%
 % OPTIONAL ARGUMENTS:
 %
-% emMaxIters    - number of EM iterations to run (default: 500)
-% tolHMFA       - stopping criterion for EM (default: 1e-2)
-% minVarFrac    - fraction of overall data variance for each observed dimension
-%                 to set as the private variance floor.  This is used to combat
-%                 Heywood cases, where ML parameter learning returns one or more
-%                 zero private variances. (default: 0.01)
+% emMaxIters    - number of AECM iterations to run (default: 500)
+% tolHMFA       - stopping criterion for AECM (default: 1e-2)
+% minVarFrac    - fraction of overall data variance for each observed
+%                 dimension to set as the private variance floor.  This 
+%                 is used to combat Heywood cases, where ML parameter 
+%                 learning returns one or more zero private variances.
+%                 (default: 0.01)
 %                 (See Martin & McDonald, Psychometrika, Dec 1975.)
 % verbose       - logical that specifies whether to display status messages
 %                 (default: false)
-% freqLL        - data likelihood is computed every freqLL EM iterations. 
-%                 freqLL = 1 means that data likelihood is computed every 
-%                 iteration. (default: 1)
+% freqLL        - data loglikelihood is computed every freqLL AECM 
+%                 iterations (default: 1)
+%
+% dbg           - set to true for AECM debugging mode (default: false)
 %
 % Code adapted from em.m by Byron Yu and John Cunningham.
 %
@@ -77,12 +107,6 @@ function [estParams, seq, LL, iterTime] = em_hmfa(currentParams, seq, varargin)
 
   nStates                           = currentParams.nStates;
   faType                            = currentParams.faType;
-
-  if ~isequal(faType,[1 1 1]) &&...
-     ~isequal(faType,[1 1 0]) &&...
-     ~isequal(faType,[1 0 0])
-   fprintf('Does not support faType = [%d %d %d]\n',faType);
-  end
 
   [yDim, xDim, ~]                   = size(currentParams.C);
 
@@ -214,16 +238,23 @@ function [estParams, seq, LL, iterTime] = em_hmfa(currentParams, seq, varargin)
           diagR                     =...
             ess.wsum(j)*(diag(YY_dd(:,:,j)) -...
                          sum(YY_ddBeta(:,:,j) .* C(:,:,jC), 2));
-          % Set minimum private variance
-          diagR                     = max(varFloor, diagR);
           currentParams.R           = currentParams.R + diag(diagR);
+          if (j == nStates)
+            currentParams.R       	= currentParams.R/sum(ess.wsum);
+            % Set minimum private variance
+            currentParams.R        	= diag(currentParams.R);
+            currentParams.R        	= max(varFloor, currentParams.R);
+            currentParams.R        	= diag(currentParams.R);
+          end % if (j == nStates)
         else
           % ensure symmetry
           currentParams.R           = currentParams.R +...
             ess.wsum(j)*symm(YY_dd(:,:,j) - C(:,:,jC) * YY_ddBeta(:,:,j)');
+          if (j == nStates)
+            currentParams.R       	= currentParams.R/sum(ess.wsum);
+          end % if (j == nStates)
         end
       end % for j=1:nStates
-      currentParams.R               = currentParams.R/sum(ess.wsum);
     end % if faType(3)
 
     tEnd                            = toc;
@@ -247,6 +278,7 @@ function [estParams, seq, LL, iterTime] = em_hmfa(currentParams, seq, varargin)
     % Verify that likelihood is growing monotonically
     if (LLi < LLold)
       if (dbg)
+        % For debugging
         fprintf(['Error: Data loglikelihood has decreased from %g',...
                  ' to %g.\nPlease check component Gaussians'' ',...
                  'positive-definiteness.\n'],...
@@ -261,7 +293,7 @@ function [estParams, seq, LL, iterTime] = em_hmfa(currentParams, seq, varargin)
         end % if (terminate)
       else % if (~dbg)
         error(['Error: Data loglikelihood has decreased from %g',...
-               ' ato %g.\nPlease check component Gaussians'' ',...
+               ' to %g.\nPlease check component Gaussians'' ',...
                'positive-definiteness.\n'],...
               LLold, LLi);
       end

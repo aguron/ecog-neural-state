@@ -2,28 +2,60 @@ function seq = predict_hmfa_fast(seq, params, varargin)
 %
 % seq = predict_hmfa_fast(seq, params, ...)
 %
-% Performs leave-electrode-out prediction for HMFA (assumes R is
-% diagonal)
+% Performs leave-one-channel-out prediction for HMFA, assuming the
+% observation noise covariance(s) is (are) diagonal
 %
 % INPUTS:
 %
-% seq         - test data structure
-% params      - HMFA model parameters fit to training data
+% seq         - data structure (same format as seqTrain in HMFAENGINE)
+% params      - HMFA model parameters (same format as currentParams
+%               in EM_HMFA)
 %
 % OUTPUTS:
 %
-% seq      	- test data structure with new field
-%               ycs (yDim x T)
+% seq        	- data structure with fields
+%                 trialId                 -- unique trial identifier
+%                 segId                   -- segment identifier within 
+%                                            trial
+%                 trialType               -- trial type index (Optional)
+%                 fs                      -- sampling frequency of ECoG
+%                                            data
+%                 T (1 x 1)               -- number of timesteps in
+%                                            segment
+%                 y (yDim x T)            -- neural data
+%                 state (1 x T)           -- HMFA state at each time
+%                                            point (from the Viterbi path)
+%                 x (xDim x T x nStates)	-- latent neural state at each
+%                                            time point for each HMFA state
+%                 p (nStates x T)       	-- defined RECURSIVELY at 
+%                                            time t (1 <= t <= T) as 
+%                                            the probability of the 
+%                                            most probable sequence of 
+%                                            length t-1 for each factor
+%                                            analyzer hidden state
+%                                            at time t, given the
+%                                            observations from 1 to t
+%                 ycs (yDim x T)          -- neural data prediction
+%
+% OPTIONAL ARGUMENTS:
+%
+% reconstruct - if true, no channel is 'left out' in estimating the
+%               hidden Markov state Viterbi path in prediction
+%               (default: false)
 %
 % Code adapted from cosmoother_gpfa_viaOrth_fast.m by Byron Yu
 % and John Cunningham.
 %
 % @ 2016 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
+  reconstruct                       = false;
+  
+  assignopts(who, varargin);
+
   if ~params.notes.RforceDiagonal
-    fprintf('ERROR: R must be diagonal to use predict_hmfa_fast.\n');
+    fprintf('ERROR: Observation noise covariance(s) must be diagonal.\n');
     return
-  end % if ~params.notes.RforceDiagonal
+  end
 
   d                                 = params.d;
   C                                 = params.C;
@@ -31,8 +63,6 @@ function seq = predict_hmfa_fast(seq, params, varargin)
   
   pi                                = params.pi;
   trans                            	= params.trans;
-  
-  notes.RforceDiagonal              = params.notes.RforceDiagonal;
 
   [yDim, xDim, ~]                   = size(C);
   nStates                           = params.nStates;
@@ -75,32 +105,49 @@ function seq = predict_hmfa_fast(seq, params, varargin)
     ycs                             = nan(yDim, T);
 
     Yn                              = seq(n).y;
-    parfor i=1:yDim
-      % In computing the Viterbi path, eliminate the contribution
-      % of electrode i
-      mi                            = [1:(i-1) (i+1):yDim];
 
-      [temp2, ~, ~]               	=...
-        exactInferenceWithLL_hmfa(struct('y',Yn(mi,:), 'T',T),...
+    temp                            = [];
+    if (reconstruct)
+      % In computing the Viterbi path, use all channels
+      [temp, ~, ~]                  =...
+        exactInferenceWithLL_hmfa(struct('y',Yn, 'T',T),...
                                   struct('nStates',nStates,...
                                          'faType',faType,...
                                          'pi',pi, 'trans',trans,...
-                                         'd',d(mi,:), 'C',C(mi,:,:),...
-                                         'R',R(mi,mi,:)),...
+                                         'd',d, 'C',C, 'R',R),...
                                   'getSeq', true,...
                                   varargin{:});
-      state                         = temp2.state;
+    end % if (reconstruct)
+    parfor i=1:yDim
+      if (reconstruct)
+        state                     	= temp.state;
+      else % if (~reconstruct)
+        % In computing the Viterbi path, eliminate the contribution
+        % of channel i
+        mi                         	= [1:(i-1) (i+1):yDim];
+
+        [temp2, ~, ~]             	=...
+          exactInferenceWithLL_hmfa(struct('y',Yn(mi,:), 'T',T),...
+                                    struct('nStates',nStates,...
+                                           'faType',faType,...
+                                           'pi',pi, 'trans',trans,...
+                                           'd',d(mi,:), 'C',C(mi,:,:),...
+                                           'R',R(mi,mi,:)),...
+                                    'getSeq', true,...
+                                    varargin{:});
+        state                       = temp2.state;
+      end
 
       if any(faType(2:3))
-        temp                       	= mat2cell(B(:,:,state),...
+        temp3                      	= mat2cell(B(:,:,state),...
                                                xDim, xDim, ones(1,T));
       else % if ~any(faType(2:3))
-        temp                       	= cell(1,T);
-        [temp{:}]                  	= deal(B);
+        temp3                      	= cell(1,T);
+        [temp3{:}]                 	= deal(B);
       end
 
       % Taking advantage of the block diagonal matrix structure
-      invM                          = blkdiag(temp{:});
+      invM                          = blkdiag(temp3{:});
 
       if faType(1)
                                     % yDim x T
@@ -207,15 +254,15 @@ function seq = predict_hmfa_fast(seq, params, varargin)
       xsmMat                        = reshape(xsmMat, xDim, T);
 
       if any(faType(1:2))
-        temp3                       = nan(1,T);
+        temp4                       = nan(1,T);
         for t=1:T
           s                         = state(t);
           sd                        = s*faType(1) + (1 - faType(1));
           sC                        = s*faType(2) + (1 - faType(2));
           
-          temp3(t)                  = C(i,:,sC) * xsmMat(:,t) + d(i,sd);
+          temp4(t)                  = C(i,:,sC) * xsmMat(:,t) + d(i,sd);
         end % for t=1:T
-        ycs(i,:)                    = temp3;
+        ycs(i,:)                    = temp4;
       else % if ~any(faType(1:2))
         ycs(i,:)                    = C(i,:) * xsmMat + d(i);
       end

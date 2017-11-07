@@ -2,65 +2,85 @@ function [seq, ess, LL] = exactInferenceWithLL_mhmfa(seq, params, varargin)
 %
 % [seq, ess, LL] = exactInferenceWithLL_mhmfa(seq, params,...)
 %
-% Extracts latent trajectories given MHMFA model parameters.
+% Infers latent variables given MHMFA model parameters
 %
 % INPUTS:
 %
-% seq         - data structure, whose nth entry (corresponding to the nth
+% seq         - data structure, whose n-th entry (corresponding to the n-th
 %               experimental trial) has fields
-%                 y (yDim x T) -- neural data
-%                 T (1 x 1)    -- number of timesteps
-% params      - MHMFA model parameters
-%  
+%               	trialId         -- unique trial identifier
+%                	segId           -- segment identifier within trial
+%                	trialType       -- trial type index (Optional)
+%                	fs              -- sampling frequency of ECoG data
+%                	T (1 x 1)       -- number of timesteps in segment
+%                	y (yDim x T)  	-- neural data
+% params      - MHMFA model parameters (same format as currentParams
+%               in EM_MHMFA)
+%
 % OUTPUTS:
 %
-% seq         - training data structure with new fields
-%                 state (1 x T)             -- factor analyzer state
-%                                              at each time point
-%                 mixComp (1 x 1)           -- most probable factor 
-%                                              MHMFA mixture component
-%                 x (xDim x T x nStates)    -- latent neural state
-%                                              at each time point
-%                 p (nStates x T)           -- defined RECURSIVELY at 
-%                                              time t (1 <= t <= T) as 
-%                                              the probability of the 
-%                                              most probable sequence of 
-%                                              length t-1 for each factor
-%                                              analyzer hidden state
-%                                              at time t, given the
-%                                              observations from 1 to t
-%                 P (1 x nMixComp)         	-- MHMFA mixture component
-%                                              posterior probabilities
+% seq        	- data structure with fields
+%                 trialId                 -- unique trial identifier
+%                 segId                   -- segment identifier within 
+%                                            trial
+%                 trialType               -- trial type index (Optional)
+%                 fs                      -- sampling frequency of ECoG
+%                                            data
+%                 T (1 x 1)               -- number of timesteps in
+%                                            segment
+%                 y (yDim x T)            -- neural data
+%                 mixComp (1 x 1)        	-- most probable component HMFA
+%                 state (1 x T            -- HMFA state at each time
+%                        x nMixComp)         point (from the Viterbi
+%                                            path) for each component HMFA
+%                 x (xDim x T x nStates 	-- latent neural state at each
+%                    x nMixComp)             time point for each HMFA state
+%                                            for each component HMFA
+%                 p (nStates x T        	-- defined RECURSIVELY at 
+%                    x nMixComp)             time t (1 <= t <= T) as 
+%                                            the probability of the 
+%                                            most probable sequence of 
+%                                            length t-1 for each factor
+%                                            analyzer hidden state
+%                                            at time t, given the
+%                                            observations from 1 to t
+%                 P (1 x nMixComp)      	-- component HMFA posterior
+%                                            probabilities
 % ess         - expected sufficient statistics structure with fields
-%                 startCounts
-%                 transCounts
-%                 weights
-%                 wsum
-%                 ybar
-% LL          - data log likelihood
+%               (with the k-th entry of the struct corresponding to the
+%               k-th component HMFA)
+%                 startCounts             -- for start probabilities
+%                 transCounts             -- for transition matrix
+%                 weights                 -- smoothed marginals
+%                 wsum                    -- sum of smoothed marginals over
+%                                            time
+%                 H                       -- probalities of component HMFAs
+%                 Hsum                    -- sum of probabilities of
+%                                            component HMFAs over time
+%                 ybar                    -- observation means estimate
+% LL          - data loglikelihood
 %
 % OPTIONAL ARGUMENTS:
 %
-% condNumLim  - upper limit of condition number of covariance
-%               for each factor analyzer (default: 1e6)
 % getLL       - logical that specifies whether to compute
-%               data log likelihood (default: false)
+%               data loglikelihood (default: false)
 % getSeq      - logical that specifies whether to compute
-%               seq fields (default: false)
+%               new seq fields in output (default: false)
+% parallel    - logical that specifies whether the component HMFA
+%               sufficient statistics are to be computed using the
+%               MATLAB Parallel Computing Toolbox (default: false)
 %
 % @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
-  condNumLim                    = 1e6;
   getLL                         = false;
   getSeq                        = false;
   parallel                      = false;
   
   assignopts(who, varargin);
-  
+
+  nMixComp                     	= params(1).nMixComp;
   nStates                       = params(1).nStates;
   faType                        = params(1).faType;
-  
-  nMixComp                     	= params(1).nMixComp;
   
   [yDim, xDim, ~]               = size(params(1).C);
 
@@ -104,12 +124,6 @@ function [seq, ess, LL] = exactInferenceWithLL_mhmfa(seq, params, varargin)
     %   inv(temp - temp2 / (eye(xDim) + C(:,:,jC)' * temp2) * temp2');
       emission(k).Sigma(:,:,j)  =...
         params(k).C(:,:,jC)*params(k).C(:,:,jC)' + params(k).R(:,:,jR);
-      condNum                   = cond(emission(k).Sigma(:,:,j));
-      if (condNum > condNumLim)
-        error(['Covariance matrix of Gaussian distribution',...
-               '(state %d, mixComp %d) has a large',...
-               'condition number (%d)'], j, k, condNum);
-      end % if (condNum > condNumLim)
     end % for j=1:nStates
   end % for k=1:nMixComp
 
@@ -122,7 +136,7 @@ function [seq, ess, LL] = exactInferenceWithLL_mhmfa(seq, params, varargin)
     logY{k}                    	= mkSoftEvidence(emission(k), yAll);
   end % for k=1:nMixComp
   [logY, scale]                 =...
-    mufun({@normalizeLogspace, [true false]}, modifycells(logY,@(x)x'));
+    cufun({@normalizeLogspace, [true false]}, modifycells(logY,@(x)x'));
   Y                             = modifycells(logY,@(x)exp(x'));
 
   logp                          = nan(N,nMixComp);
@@ -207,7 +221,7 @@ function [seq, ess, LL] = exactInferenceWithLL_mhmfa(seq, params, varargin)
       invRC                     = nan([yDim xDim nStates nMixComp]);
       invM                      = nan([yDim yDim nStates nMixComp]);
       betaFA                    = nan([xDim yDim nStates nMixComp]);
-    else
+    else % if ~any(faType(2:3))
       invRC                     = nan([yDim xDim 1 nMixComp]);
       invM                      = nan([yDim yDim 1 nMixComp]);
       betaFA                    = nan([xDim yDim 1 nMixComp]);
@@ -243,10 +257,10 @@ function [seq, ess, LL] = exactInferenceWithLL_mhmfa(seq, params, varargin)
     for n=1:N
       for k=1:nMixComp
         [seq(n).state(:,:,k), seq(n).p(:,:,k)]...
-                                =hmmMap(struct('pi',params(k).pi,...
-                                               'A', params(k).trans,...
-                                               'emission', emission(k)),...
-                                        seq(n).y);
+                                = hmmMap(struct('pi',params(k).pi,...
+                                                'A',params(k).trans,...
+                                                'emission',emission(k)),...
+                                         seq(n).y);
       end % for k=1:nMixComp
       seq(n).mixComp            = maxidx(ess(1).H(n,:));
       seq(n).P                  = ess(1).H(n,:);

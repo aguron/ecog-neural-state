@@ -1,5 +1,21 @@
 function [idx,centroid] = kmeansclszthr(X,k,Thr,nRuns)
-%KMEANSCLSZTHR
+%KMEANSCLSZTHR K-means clustering while attempting to satisfy a minimum
+%   cluster size threshold
+%
+% INPUTS:
+%
+% X         - matrix with points for clustering in rows
+%	k         - number of clusters
+% Thr       - minimum cluster size threshold
+% nRuns     - maximum number of attempts to satisfy minimum cluster size
+%             threshold
+%
+% OUTPUTS:
+%
+% idx       - cluster assignments
+% centroid	- matrix with cluster centroids in rows
+%
+% @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
   for i=1:nRuns
     init                          	= true;

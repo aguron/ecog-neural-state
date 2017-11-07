@@ -2,76 +2,87 @@ function hmmEngine(seqTrain, seqTest, fname, varargin)
 %
 % hmmEngine(seqTrain, seqTest, fname, ...) 
 %
-% Extract neural trajectories using HMM.
+% Model fitting and inference with HMM
 %
-%   yDim: number of electrodes
+%   yDim: number of electrodes or channels
 %
 % INPUTS:
 %
-% seqTrain    - training data structure, whose nth entry (corresponding
-%               to the nth experimental trial) has fields
-%                 trialId (1 x 1)         -- unique trial identifier
-%                 y (# electrodes x T)    -- neural data
-%                 T (1 x 1)               -- number of timesteps
+% seqTrain    - training data structure, whose n-th entry (corresponding
+%               to the n-th experimental trial) has fields
+%                 trialId           -- unique trial identifier
+%                 trialType (1 x 1)	-- trial type index (Optional)
+%                 fs (1 x 1)       	-- sampling frequency of ECoG data
+%                 T (1 x 1)         -- number of timesteps
+%                 y (yDim x T)      -- neural data
 % seqTest     - test data structure (same format as seqTrain)
-% fname       - filename of where results are saved
+% fname       - model filename
 %
 % OPTIONAL ARGUMENTS:
 %
-% nStates     - number of HMM states (default: 3)
-% binWidth    - ECoG window width in seconds (default: 0.2)
-% kernSD      - Gaussian smoothing kernel width in seconds (default: 0)
-
-% Replicates            - number of times to repeat EM algorithm
-%                         for GMM initialization (default: 1)
-% CovType             	- 'full' or 'diagonal' (default)
-% Regularize          	- nonnegative number added to diagonals of
-%                         covariance matrices to make them
-%                         positive-definite in GMM initialization
-%                         (default: 0)
-% Options               - Please see GMDISTRIBUTION.FIT in MATLAB
-
-% d (yDim x nStates)              - observation mean(s)
-% R (yDim x yDim x                - observation noise covariance(s)
-%    nStates (or 1))
-% pi0 (1 x nStates)               - initial HMM start probabilities
-% piPrior (1 x nStates)           - pseudo counts for HMM start
-%                                   probabilities
-% trans0 (nStates x nStates)      - initial HMM transition probabilities
-% transPrior (nStates x nStates)  - pseudo counts for HMM transition
-%                                   probabilities
-% stateGuess                      - initial state guesses for time points
-%                                 	for training data
-
-% learning                        - specifies whether model should be
-%                                   learned from seqTrain (default: true)
-% inference                       - specifies whether latent variables
-%                                   should be inferred from seqTest
-%                                   (default: true)
-% prediction                      - specifies whether leave-channel-out
-%                                   prediction should be carried out on
-%                                   seqTest (default: false)
+% nStates                           - number of Markov states (default: 3)
+% CovType                           - HMM covariance type: 'full' or
+%                                     'diagonal' (default: 'diagonal')
+% SharedCov                         - HMM covariance tied (true) or
+%                                     untied (false) (default: false)
+%
+% binWidth                          - ECoG window width in seconds
+%                                     (default: 0.2)
+% kernSD                            - Gaussian smoothing kernel width in
+%                                    	seconds. 0 corresponds to no
+%                                     smoothing (default: 0)
+%
+% Replicates                       ]  parameters for
+% Regularize                       ]- MATLAB function
+% Options                          ]  GMDISTRIBUTION.FIT
+%
+% d (yDim x nStates)                - observation means
+% R (yDim x yDim x nStates (or 1))	- covariance(s)
+%
+% pi0 (1 x nStates)               	- HMM initial start probabilities
+% piPrior (1 x nStates)           	- pseudo counts for HMM start 
+%                                     probabilities
+% trans0 (nStates x nStates)        - HMM initial transition probabilities
+% transPrior (nStates x nStates)    - pseudo counts for HMM transition
+%                                     probabilities
+%
+% stateGuess                      	- cell array of initial state guesses
+%                                     for time points of trials for
+%                                     training data
+%
+% learning                          - indicates whether model fitting
+%                                     should be carried out (default: true)
+% inference                       	- indicates whether latent variables
+%                                     should be inferred for seqTest
+%                                     (default: true)
+% prediction                        - specifies whether
+%                                     leave-one-channel-out prediction
+%                                    	should be carried out
+%                                     (default: false)
 %
 % @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
   nStates                                   = 3;
-  binWidth                                  = 0.2;  % in sec
-  kernSD                                    = 0;    % in sec
-
-  Replicates                                = 1;
   CovType                                   = 'diagonal';
   SharedCov                                 = false;
+
+  binWidth                                  = 0.2;
+  kernSD                                    = 0;
+
+  Replicates                                = 1;
   Regularize                                = 0;
   Options                                   = [];
   
   d                                         = [];
   R                                         = [];
+
   pi0                                       = [];
   piPrior                                   = [];
   trans0                                    = [];
   transPrior                                = [];
+
   stateGuess                                = [];
-  
+
   learning                                  = true;
   inference                                 = true;
   prediction                                = false;
@@ -101,17 +112,23 @@ function hmmEngine(seqTrain, seqTest, fname, varargin)
       end % for n=1:length(seqTest)
     end % if (kernSD)
 
-    % For compute efficiency, train on equal-length segments of trials
-    seqTrainCut                             =...
-      cutTrials(seqTrain, extraOpts{:});
+    % Resegment trials for training
+    [seqTrainCut, resegTrlGuess]           	=...
+      resegmenttrials(seqTrain,...
+                      'method', 'hmm',...
+                      'stateGuess', stateGuess,...
+                      extraOpts{:});
     if isempty(seqTrain)
-      fprintf('No segments extracted for training.\n');
+      fprintf('No segments for training.\n');
     elseif isempty(seqTrainCut)
       fprintf(['WARNING: no segments extracted for training.',...
                ' Defaulting to segLength=Inf.\n']);
-      seqTrainCut                           =...
-        cutTrials(seqTrain, 'segLength', Inf);
-    end % if isempty(seqTrainCut)
+      [seqTrainCut, resegTrlGuess]         	=...
+        resegmenttrials(seqTrain,...
+                        'method', 'hmm',...
+                        'stateGuess', stateGuess,...
+                        'segLength', Inf);
+    end
 
     yAll                                    = [seqTrainCut.y];
     if ~isempty(yAll)
@@ -130,10 +147,10 @@ function hmmEngine(seqTrain, seqTest, fname, varargin)
         {'Replicates', Replicates, 'CovType', CovType,...
          'SharedCov', SharedCov, 'Regularize', Regularize,...
          'Options', Options};
-      if ~isempty(stateGuess)
+      if ~isempty(resegTrlGuess.state)
         args                                =...
-          [args, 'Start', cell2mat(stateGuess)];
-      end % if ~isempty(stateGuess)
+          [args, 'Start', cell2mat(resegTrlGuess.state)];
+      end % if ~isempty(resegTrlGuess.state)
       obj                                   =...
         gmdistribution.fit(yAll', nStates, args{:});
 
@@ -227,9 +244,9 @@ function hmmEngine(seqTrain, seqTest, fname, varargin)
   end
 
   if ~isempty(seqTest) % check if there are any test trials
-    % =========================================
-    % Leave-channel-out prediction on test data
-    % =========================================
+    % =============================================
+    % Leave-one-channel-out prediction on test data
+    % =============================================
     if (prediction)
       seqTest                               =...
         predict_hmm(seqTest, estParams, varargin{:});

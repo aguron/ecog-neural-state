@@ -8,14 +8,16 @@ function [loglik, alpha] = hmmFilter2(initDist, transmat, softev)
 % OUTPUT
 % loglik = log p(y(1:T))
 % alpha(i,t)  = p(S(t)=i| y(1:t))
-
-% This file is from pmtk3.googlecode.com
+%
+% Code adapted from hmmFilter.m in pmtk3.
+%
+% @ 2016 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
 
 
 [K T]                          	= size(softev);
 scale                           = zeros(T,1);
-AT = transmat';
+AT                              = transmat';
 if nargout >= 2
     alpha                       = zeros(K,T);
     [alpha(:,1), scale(1)]      =...

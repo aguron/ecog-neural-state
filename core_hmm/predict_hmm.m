@@ -2,20 +2,51 @@ function seq = predict_hmm(seq, params, varargin)
 %
 % seq = predict_hmm(seq, params, ...)
 %
-% Performs leave-electrode-out prediction for HMM.
+% Performs leave-one-channel-out prediction for HMM
 %
 % INPUTS:
 %
-% seq       	- test data structure
-% params    	- HMM model fit to training data
+% seq         - data structure (same format as seqTrain in HMMENGINE)
+% params      - HMM model parameters (same format as currentParams
+%               in EM_HMM)
 %
 % OUTPUTS:
 %
-% seq         - test data structure with new fields
-%                 ycs (yDim x T)
-%                 vcs (yDim x T)
+% seq        	- data structure with fields
+%                 trialId                 -- unique trial identifier
+%                 segId                   -- segment identifier within 
+%                                            trial
+%                 trialType               -- trial type index (Optional)
+%                 fs                      -- sampling frequency of ECoG
+%                                            data
+%                 T (1 x 1)               -- number of timesteps in
+%                                            segment
+%                 y (yDim x T)            -- neural data
+%                 state (1 x T)           -- HMM state at each time
+%                                            point (from the Viterbi path)
+%                 p (nStates x T)       	-- defined RECURSIVELY at 
+%                                            time t (1 <= t <= T) as 
+%                                            the probability of the 
+%                                            most probable sequence of 
+%                                            length t-1 for each factor
+%                                            analyzer hidden state
+%                                            at time t, given the
+%                                            observations from 1 to t
+%                 ycs (yDim x T)          -- neural data prediction
+%                 vcs (yDim x T)          -- neural data prediction
+%                                            variance
+%
+% OPTIONAL ARGUMENTS:
+%
+% reconstruct - if true, no channel is 'left out' in estimating the
+%               hidden Markov state Viterbi path in prediction
+%               (default: false)
 %
 % @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
+
+  reconstruct                       = false;
+  
+  assignopts(who, varargin);
 
   d                                 = params.d;
   R                                 = params.R;
@@ -34,21 +65,38 @@ function seq = predict_hmm(seq, params, varargin)
     T                               = Tall(n);
     ycs                             = nan(yDim, T);
     vcs                             = nan(yDim, T);
-    Yn                              = seq(n).y;
-    parfor i=1:yDim
-      % In computing the Viterbi path, eliminate the contribution
-      % of electrode i
-      mi                            = [1:(i-1) (i+1):yDim];
 
-      [temp2, ~, ~]                 =...
-        exactInferenceWithLL_hmm(struct('y',Yn(mi,:), 'T',T),...
+    Yn                              = seq(n).y;
+
+    temp                            = [];
+    if (reconstruct)
+      % In computing the Viterbi path, use all channels
+      [temp, ~, ~]                  =...
+        exactInferenceWithLL_hmm(struct('y',Yn, 'T',T),...
                                  struct('nStates',nStates,...
                                         'pi',pi, 'trans',trans,...
-                                        'd',d(mi,:), 'R',R(mi,mi,:),...
+                                        'd',d, 'R',R,...
                                         'sharedCov', sharedCov),...
                                  'getSeq', true,...
                                  varargin{:});
-      state                         = temp2.state;
+    end % if (reconstruct)
+    parfor i=1:yDim
+      % In computing the Viterbi path, eliminate the contribution
+      % of channel i
+      mi                            = [1:(i-1) (i+1):yDim];
+      if (reconstruct)
+        state                     	= temp.state;
+      else % if (~reconstruct)
+        [temp2, ~, ~]               =...
+          exactInferenceWithLL_hmm(struct('y',Yn(mi,:), 'T',T),...
+                                   struct('nStates',nStates,...
+                                          'pi',pi, 'trans',trans,...
+                                          'd',d(mi,:), 'R',R(mi,mi,:),...
+                                          'sharedCov', sharedCov),...
+                                   'getSeq', true,...
+                                   varargin{:});
+        state                       = temp2.state;
+      end
       
       % Taking advantage of block diagonal matrix structure
       invRmimi                    	=...
@@ -60,27 +108,26 @@ function seq = predict_hmm(seq, params, varargin)
          invRmimi(:,:,j)          	= inv(R(mi,mi,j));
         end
       end % for j=1:max(1,nStates*~sharedCov)
-      temp                          = mat2cell(invRmimi(:,:,min(state,end)),...
+      temp3                         = mat2cell(invRmimi(:,:,min(state,end)),...
                                                yDim-1, yDim-1, ones(1,T));
                                     % (yDim-1)*T x (yDim-1)*T
-      invBmimi                      = blkdiag(temp{:});
+      invBmimi                      = blkdiag(temp3{:});
 
       if strcmp(covType, 'full')
-        temp                        = mat2cell(R(i,mi,min(state,end)),...
+        temp3                       = mat2cell(R(i,mi,min(state,end)),...
                                                1, yDim-1, ones(1,T));
                                     % T x (yDim-1)*T
-        Bimi                        = blkdiag(temp{:});
-      end % if strcmp(covType, 'full')
+        Bimi                        = blkdiag(temp3{:});
 
-      if strcmp(covType, 'full')
-        temp                        = mat2cell(R(mi,i,min(state,end)),...
+        temp3                       = mat2cell(R(mi,i,min(state,end)),...
                                                yDim-1, 1, ones(1,T));
                                     % (yDim-1)*T x T
-        Bmii                        = blkdiag(temp{:});
+        Bmii                        = blkdiag(temp3{:});
       end % if strcmp(covType, 'full')
 
                                     % T x T
-      Bii                           = diag(matflat(R(i,i,min(state,end))));
+      Bii                           =...
+       diag(ndarrayflatten(R(i,i,min(state,end))));
 
       if strcmp(covType, 'diagonal')
         % 1 x T

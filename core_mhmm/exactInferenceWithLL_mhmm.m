@@ -2,60 +2,81 @@ function [seq, ess, LL] = exactInferenceWithLL_mhmm(seq, params, varargin)
 %
 % [seq, ess, LL] = exactInferenceWithLL_mhmm(seq, params,...)
 %
-% Extracts latent trajectories given MHMM model parameters.
+% Infers latent variables given MHMM model parameters
 %
 % INPUTS:
 %
-% seq         - data structure, whose nth entry (corresponding to the nth
+% seq         - data structure, whose n-th entry (corresponding to the n-th
 %               experimental trial) has fields
-%                 y (yDim x T) -- neural data
-%                 T (1 x 1)    -- number of timesteps
-% params      - MHMM model parameters
-%  
+%               	trialId         -- unique trial identifier
+%                	segId           -- segment identifier within trial
+%                	trialType       -- trial type index (Optional)
+%                	fs              -- sampling frequency of ECoG data
+%                	T (1 x 1)       -- number of timesteps in segment
+%                	y (yDim x T)  	-- neural data
+% params      - MHMM model parameters (same format as currentParams
+%               in EM_MHMM)
+%
 % OUTPUTS:
 %
-% seq         - training data structure with new fields
-%                 state (1 x T)             -- state at each time point
-%                 mixComp (1 x 1)           -- most probable factor 
-%                                              MHMM mixture component
-%                 p (nStates x T)           -- defined RECURSIVELY at 
-%                                              time t (1 <= t <= T) as 
-%                                              the probability of the 
-%                                              most probable sequence of 
-%                                              length t-1 for each factor
-%                                              analyzer hidden state
-%                                              at time t, given the
-%                                              observations from 1 to t
-%                 P (1 x nMixComp)         	-- MHMM mixture component
-%                                              posterior probabilities
+% seq        	- data structure with fields
+%                 trialId                 -- unique trial identifier
+%                 segId                   -- segment identifier within 
+%                                            trial
+%                 trialType               -- trial type index (Optional)
+%                 fs                      -- sampling frequency of ECoG
+%                                            data
+%                 T (1 x 1)               -- number of timesteps in
+%                                            segment
+%                 y (yDim x T)            -- neural data
+%                 state (1 x T            -- HMM state at each time
+%                        x nMixComp)         point (from the Viterbi
+%                                            path) for each component HMM
+%                 mixComp (1 x 1)        	-- most probable component HMM
+%                 p (nStates x T        	-- defined RECURSIVELY at 
+%                    x nMixComp)             time t (1 <= t <= T) as 
+%                                            the probability of the 
+%                                            most probable sequence of 
+%                                            length t-1 for each factor
+%                                            analyzer hidden state
+%                                            at time t, given the
+%                                            observations from 1 to t
+%                 P (1 x nMixComp)      	-- component HMM posterior
+%                                            probabilities
 % ess         - expected sufficient statistics structure with fields
-%                 startCounts
-%                 transCounts
-%                 weights
-%                 wsum
-%                 ybar
-% LL          - data log likelihood
+%               (with the k-th entry of the struct corresponding to the
+%               k-th component HMFA)
+%                 startCounts             -- for start probabilities
+%                 transCounts             -- for transition matrix
+%                 weights                 -- smoothed marginals
+%                 wsum                    -- sum of smoothed marginals over
+%                                            time
+%                 H                       -- probalities of component HMMs
+%                 Hsum                    -- sum of probabilities of
+%                                            component HMMs over time
+%                 ybar                    -- observation means estimate
+% LL          - data loglikelihood
 %
 % OPTIONAL ARGUMENTS:
 %
-% condNumLim  - upper limit of condition number of covariance
-%               for each factor analyzer (default: 1e6)
 % getLL       - logical that specifies whether to compute
-%               data log likelihood (default: false)
+%               data loglikelihood (default: false)
 % getSeq      - logical that specifies whether to compute
-%               seq fields (default: false)
+%               new seq fields in output (default: false)
+% parallel    - logical that specifies whether the component HMFA
+%               sufficient statistics are to be computed using the
+%               MATLAB Parallel Computing Toolbox (default: false)
 %
 % @ 2017 Akinyinka Omigbodun    aomigbod@ucsd.edu
 
-  condNumLim                    = 1e6;
   getLL                         = false;
   getSeq                        = false;
   parallel                      = false;
   
   assignopts(who, varargin);
   
-  nStates                       = params(1).nStates;
   nMixComp                     	= params(1).nMixComp;
+  nStates                       = params(1).nStates;
   
   yDim                         	= size(params(1).R, 1);
 
@@ -95,12 +116,6 @@ function [seq, ess, LL] = exactInferenceWithLL_mhmm(seq, params, varargin)
       else % if (~params(1).sharedCov)
        emission(k).Sigma(:,:,j) = params(k).R(:,:,j);
       end
-      
-      condNum                   = cond(emission(k).Sigma(:,:,j));
-      if (condNum > condNumLim)
-        error(['Covariance matrix of Gaussian distribution (state %d) ',...
-               'has a large condition number (%d)'], j, condNum);
-      end % if (condNum > condNumLim)
     end % for j=1:nStates*~params(1).sharedCov
   end % for k=1:nMixComp
   
@@ -113,7 +128,7 @@ function [seq, ess, LL] = exactInferenceWithLL_mhmm(seq, params, varargin)
     logY{k}                    	= mkSoftEvidence(emission(k), yAll);
   end % for k=1:nMixComp
   [logY, scale]                 =...
-    mufun({@normalizeLogspace, [true false]}, modifycells(logY,@(x)x'));
+    cufun({@normalizeLogspace, [true false]}, modifycells(logY,@(x)x'));
   Y                             = modifycells(logY,@(x)exp(x'));
 
   logp                          = nan(N,nMixComp);
@@ -158,7 +173,6 @@ function [seq, ess, LL] = exactInferenceWithLL_mhmm(seq, params, varargin)
           ess(k).transCounts + ynSummed * p(n,k);
         ess(k).weights(ndx, :) 	=...
           ess(k).weights(ndx, :) + gamma' * p(n,k);
-
       end % for k=1:nMixComp
     end % for n=1:N
   else % if (parallel)
@@ -192,10 +206,10 @@ function [seq, ess, LL] = exactInferenceWithLL_mhmm(seq, params, varargin)
     for n=1:N
       for k=1:nMixComp
         [seq(n).state(:,:,k), seq(n).p(:,:,k)]...
-                                =hmmMap(struct('pi',params(k).pi,...
-                                               'A', params(k).trans,...
-                                               'emission', emission(k)),...
-                                        seq(n).y);
+                                = hmmMap(struct('pi',params(k).pi,...
+                                                'A',params(k).trans,...
+                                                'emission',emission(k)),...
+                                         seq(n).y);
       end % for k=1:nMixComp
       seq(n).mixComp            = maxidx(ess(1).H(n,:));
       seq(n).P                  = ess(1).H(n,:);
